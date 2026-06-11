@@ -1,0 +1,464 @@
+use crate::db::{self, DbState, MediaItem};
+use crate::metadata;
+use crate::scanner;
+use crate::thumbnail;
+use serde::Serialize;
+use std::path::Path;
+use tauri::{AppHandle, Emitter, Manager};
+
+// ============================================================================
+// Response types
+// ============================================================================
+
+#[derive(Debug, Serialize)]
+pub struct ScanResult {
+    pub project_id: String,
+    pub total_files: usize,
+    pub photos: usize,
+    pub videos: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanProgressEvent {
+    pub phase: String,
+    pub current: usize,
+    pub total: usize,
+    pub current_file: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PaginatedMedia {
+    pub items: Vec<MediaItem>,
+    pub total: i64,
+    pub page: i64,
+    pub page_size: i64,
+}
+
+// ============================================================================
+// Project commands
+// ============================================================================
+
+#[tauri::command]
+pub fn get_projects(state: tauri::State<'_, DbState>) -> Result<Vec<db::Project>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::list_projects(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_project(
+    state: tauri::State<'_, DbState>,
+    name: String,
+    root_path: String,
+) -> Result<db::Project, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    db::create_project(&conn, &id, &name, &root_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_project(state: tauri::State<'_, DbState>, project_id: String) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::delete_project(&conn, &project_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_project(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<db::Project, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_project(&conn, &project_id).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Scan & import commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn scan_folder(
+    app: AppHandle,
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+    folder_path: String,
+) -> Result<ScanResult, String> {
+    let path = Path::new(&folder_path);
+    if !path.exists() || !path.is_dir() {
+        return Err("Invalid folder path".to_string());
+    }
+
+    // Phase 1: Scan directory
+    app.emit("scan-progress", ScanProgressEvent {
+        phase: "scanning".to_string(),
+        current: 0,
+        total: 0,
+        current_file: "Scanning directory...".to_string(),
+    })
+    .ok();
+
+    let scanned_files = scanner::scan_directory(path);
+    let total = scanned_files.len();
+    let photos = scanned_files.iter().filter(|f| f.file_type == "photo").count();
+    let videos = scanned_files.iter().filter(|f| f.file_type == "video").count();
+
+    // Phase 2: Insert into database
+    app.emit("scan-progress", ScanProgressEvent {
+        phase: "importing".to_string(),
+        current: 0,
+        total,
+        current_file: "Saving to database...".to_string(),
+    })
+    .ok();
+
+    let media_items: Vec<MediaItem> = scanned_files
+        .iter()
+        .map(|f| MediaItem {
+            id: uuid::Uuid::new_v4().to_string(),
+            project_id: project_id.clone(),
+            file_path: f.file_path.clone(),
+            file_name: f.file_name.clone(),
+            file_type: f.file_type.clone(),
+            file_size: f.file_size,
+            width: None,
+            height: None,
+            category_id: None,
+            star_rating: 0,
+            color_label: None,
+            thumbnail_path: None,
+            preview_path: None,
+            exif_json: None,
+            file_hash: None,
+            date_taken: f.modified_at.clone(),
+            created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            updated_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        })
+        .collect();
+
+    {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        db::insert_media_batch(&conn, &media_items).map_err(|e| e.to_string())?;
+        db::update_project_stats(&conn, &project_id).map_err(|e| e.to_string())?;
+    }
+
+    // Phase 3: Generate thumbnails in background
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    let thumb_dir = scanner::get_thumbnail_dir(&app_data_dir, &project_id);
+    let app_clone = app.clone();
+
+    // Clone state for the background thread — must be done before moving into closure
+    let db_state: DbState = {
+        DbState {
+            conn: std::sync::Mutex::new(
+                rusqlite::Connection::open(
+                    app_data_dir.join("keepix.db")
+                ).map_err(|e| e.to_string())?
+            ),
+        }
+    };
+    let items_for_thumbs = media_items.clone();
+
+    std::thread::spawn(move || {
+        let total = items_for_thumbs.len();
+
+        for (idx, item) in items_for_thumbs.iter().enumerate() {
+            let result = if item.file_type == "photo" {
+                thumbnail::generate_thumbnails(
+                    Path::new(&item.file_path),
+                    &thumb_dir,
+                    &item.id,
+                )
+            } else {
+                thumbnail::generate_video_placeholder(&thumb_dir, &item.id)
+            };
+
+            if let Ok(thumb_result) = &result {
+                if let Ok(conn) = db_state.conn.lock() {
+                    db::update_thumbnail(
+                        &conn,
+                        &item.id,
+                        &thumb_result.thumbnail_path,
+                        Some(&thumb_result.preview_path),
+                    )
+                    .ok();
+
+                    // Also read and store EXIF for photos
+                    if item.file_type == "photo" {
+                        let exif = metadata::read_exif(Path::new(&item.file_path));
+                        if let Ok(exif_json) = serde_json::to_string(&exif) {
+                            db::update_exif(
+                                &conn,
+                                &item.id,
+                                &exif_json,
+                                exif.width.map(|w| w as i32),
+                                exif.height.map(|h| h as i32),
+                            )
+                            .ok();
+                        }
+                    }
+                }
+            }
+
+            // Emit progress
+            app_clone
+                .emit(
+                    "scan-progress",
+                    ScanProgressEvent {
+                        phase: "thumbnails".to_string(),
+                        current: idx + 1,
+                        total,
+                        current_file: item.file_name.clone(),
+                    },
+                )
+                .ok();
+        }
+
+        // Emit completion
+        app_clone
+            .emit(
+                "scan-progress",
+                ScanProgressEvent {
+                    phase: "complete".to_string(),
+                    current: total,
+                    total,
+                    current_file: "Done!".to_string(),
+                },
+            )
+            .ok();
+    });
+
+    Ok(ScanResult {
+        project_id,
+        total_files: total,
+        photos,
+        videos,
+    })
+}
+
+// ============================================================================
+// Media commands
+// ============================================================================
+
+#[tauri::command]
+pub fn get_media_items(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+    page: i64,
+    page_size: i64,
+    category_id: Option<i32>,
+    star_rating: Option<i32>,
+    uncategorized_only: bool,
+) -> Result<PaginatedMedia, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let offset = page * page_size;
+
+    let items = db::get_media_items(
+        &conn,
+        &project_id,
+        category_id,
+        star_rating,
+        uncategorized_only,
+        offset,
+        page_size,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let total = db::get_media_count(&conn, &project_id, category_id, uncategorized_only)
+        .map_err(|e| e.to_string())?;
+
+    Ok(PaginatedMedia {
+        items,
+        total,
+        page,
+        page_size,
+    })
+}
+
+#[tauri::command]
+pub fn get_single_media(
+    state: tauri::State<'_, DbState>,
+    media_id: String,
+) -> Result<MediaItem, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_media_item(&conn, &media_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_category(
+    state: tauri::State<'_, DbState>,
+    media_id: String,
+    project_id: String,
+    category_id: Option<i32>,
+) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    // Get old value for undo
+    let old_category: Option<i32> = db::set_media_category(&conn, &media_id, category_id)
+        .map_err(|e| e.to_string())?;
+
+    // Push undo entry
+    let old_str = old_category.map(|c: i32| c.to_string());
+    let new_str = category_id.map(|c| c.to_string());
+    db::push_undo(
+        &conn,
+        &project_id,
+        &media_id,
+        "set_category",
+        old_str.as_deref(),
+        new_str.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_star_rating(
+    state: tauri::State<'_, DbState>,
+    media_id: String,
+    rating: i32,
+) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::set_star_rating(&conn, &media_id, rating).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_color_label(
+    state: tauri::State<'_, DbState>,
+    media_id: String,
+    color: Option<String>,
+) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::set_color_label(&conn, &media_id, color.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_metadata(
+    state: tauri::State<'_, DbState>,
+    media_id: String,
+) -> Result<metadata::ExifData, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let item = db::get_media_item(&conn, &media_id).map_err(|e| e.to_string())?;
+
+    // If we have cached EXIF, return it
+    if let Some(ref exif_json) = item.exif_json {
+        if let Ok(exif) = serde_json::from_str::<metadata::ExifData>(exif_json) {
+            return Ok(exif);
+        }
+    }
+
+    // Otherwise, read it fresh
+    let mut exif = metadata::read_exif(Path::new(&item.file_path));
+    exif.file_size = Some(item.file_size);
+    exif.file_format = Path::new(&item.file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_uppercase());
+
+    // Cache it
+    if let Ok(exif_json) = serde_json::to_string(&exif) {
+        db::update_exif(
+            &conn,
+            &media_id,
+            &exif_json,
+            exif.width.map(|w| w as i32),
+            exif.height.map(|h| h as i32),
+        )
+        .ok();
+    }
+
+    Ok(exif)
+}
+
+// ============================================================================
+// Undo command
+// ============================================================================
+
+#[tauri::command]
+pub fn undo_last_action(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<Option<String>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    let entry = db::pop_undo(&conn, &project_id).map_err(|e| e.to_string())?;
+
+    if let Some(entry) = entry {
+        match entry.action_type.as_str() {
+            "set_category" => {
+                let old_cat: Option<i32> = entry.old_value.and_then(|v| v.parse().ok());
+                db::set_media_category(&conn, &entry.media_id, old_cat)
+                    .map_err(|e| e.to_string())?;
+                Ok(Some(format!("Undone category change for {}", entry.media_id)))
+            }
+            _ => Ok(None),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+// ============================================================================
+// Category & stats commands
+// ============================================================================
+
+#[tauri::command]
+pub fn get_categories(state: tauri::State<'_, DbState>) -> Result<Vec<db::Category>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_categories(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_category_stats(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<Vec<db::CategoryStats>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_category_stats(&conn, &project_id).map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Batch operations
+// ============================================================================
+
+#[tauri::command]
+pub fn batch_set_category(
+    state: tauri::State<'_, DbState>,
+    media_ids: Vec<String>,
+    project_id: String,
+    category_id: Option<i32>,
+) -> Result<usize, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let mut count = 0;
+
+    for media_id in &media_ids {
+        let old_category: Option<i32> = db::set_media_category(&conn, media_id, category_id)
+            .map_err(|e| e.to_string())?;
+
+        let old_str = old_category.map(|c: i32| c.to_string());
+        let new_str = category_id.map(|c| c.to_string());
+        db::push_undo(
+            &conn,
+            &project_id,
+            media_id,
+            "set_category",
+            old_str.as_deref(),
+            new_str.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+
+        count += 1;
+    }
+
+    Ok(count)
+}
+
+// ============================================================================
+// Utility commands
+// ============================================================================
+
+#[tauri::command]
+pub fn convert_file_path(path: String) -> String {
+    path.replace('\\', "/")
+}
