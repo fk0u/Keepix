@@ -321,102 +321,103 @@
 
 <div class="cull-workspace">
   <SplitPane minSizes={[240, 400, 260]} defaultSizes={[280, 800, 320]}>
-    
-    <!-- LEFT PANE: Sidebar -->
-    <div slot="left" style="height: 100%;">
-      <Sidebar onOpenExport={() => showExport = true} />
-    </div>
+    {#snippet left()}
+      <div style="height: 100%;">
+        <Sidebar onOpenExport={() => showExport = true} />
+      </div>
+    {/snippet}
 
-    <!-- CENTER PANE: Main Content -->
-    <div slot="center" class="main-area">
-      <Toolbar
-        bind:thumbnailSize={thumbnailSize}
-        bind:showMetadata={showMetadata}
-        onShowShortcuts={() => showShortcuts = true}
-        onGoHome={() => goto('/')}
-      />
+    {#snippet center()}
+      <div class="main-area">
+        <Toolbar
+          bind:thumbnailSize={thumbnailSize}
+          bind:showMetadata={showMetadata}
+          onShowShortcuts={() => showShortcuts = true}
+          onGoHome={() => goto('/')}
+        />
 
-      {#if $isScanning}
-        <ProgressBar />
-      {/if}
+        {#if $isScanning}
+          <ProgressBar />
+        {/if}
 
-      {#if categoryFlash}
-        <div class="category-flash" style="background-color: {getCategoryColor(categoryFlash)}">
-          <span>{getCategoryName(categoryFlash)}</span>
-        </div>
-      {/if}
+        {#if categoryFlash}
+          <div class="category-flash" style="background-color: {getCategoryColor(categoryFlash)}">
+            <span>{getCategoryName(categoryFlash)}</span>
+          </div>
+        {/if}
 
-      <div class="content-area">
-        <div class="media-container">
-          {#if $viewMode === 'grid'}
-            <GridView
-              items={$displayItems}
-              originalItems={$mediaItems}
-              selectedIndex={$selectedIndex}
-              {thumbnailSize}
-              onSelect={handleGridSelect}
-              onDoubleClick={handleGridDoubleClick}
-            />
-          {:else}
-            <PreviewView
+        <div class="content-area">
+          <div class="media-container">
+            {#if $viewMode === 'grid'}
+              <GridView
+                items={$displayItems}
+                originalItems={$mediaItems}
+                selectedIndex={$selectedIndex}
+                {thumbnailSize}
+                onSelect={handleGridSelect}
+                onDoubleClick={handleGridDoubleClick}
+              />
+            {:else}
+              <PreviewView
+                item={$currentItem}
+                items={$mediaItems}
+                selectedIndex={$selectedIndex}
+                onNavigate={navigateTo}
+              />
+            {/if}
+
+            {#if !$isLoading && $mediaItems.length === 0}
+              <div class="empty-media">
+                <p>No media items found</p>
+                <p class="empty-sub">
+                  {#if $categoryFilter || $uncategorizedOnly}
+                    Try clearing filters
+                  {:else}
+                    Open a folder to start culling
+                  {/if}
+                </p>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Metadata panel overlays the center pane -->
+          {#if showMetadata}
+            <MetadataPanel
+              {exifData}
               item={$currentItem}
-              items={$mediaItems}
-              selectedIndex={$selectedIndex}
-              onNavigate={navigateTo}
+              onClose={() => showMetadata = false}
             />
-          {/if}
-
-          {#if !$isLoading && $mediaItems.length === 0}
-            <div class="empty-media">
-              <p>No media items found</p>
-              <p class="empty-sub">
-                {#if $categoryFilter || $uncategorizedOnly}
-                  Try clearing filters
-                {:else}
-                  Open a folder to start culling
-                {/if}
-              </p>
-            </div>
           {/if}
         </div>
 
-        <!-- Metadata panel overlays the center pane -->
-        {#if showMetadata}
-          <MetadataPanel
-            {exifData}
-            item={$currentItem}
-            onClose={() => showMetadata = false}
-          />
-        {/if}
-      </div>
-
-      <div class="status-bar">
-        <span class="status-item">
-          {$selectedIndex + 1} / {$mediaItems.length}
-          {#if $totalItems > $mediaItems.length}
-            <span class="text-dim">(of {$totalItems})</span>
+        <div class="status-bar">
+          <span class="status-item">
+            {$selectedIndex + 1} / {$mediaItems.length}
+            {#if $totalItems > $mediaItems.length}
+              <span class="text-dim">(of {$totalItems})</span>
+            {/if}
+          </span>
+          {#if $currentItem}
+            <span class="status-item truncate">{$currentItem.file_name}</span>
+            <span class="status-item">{formatFileSize($currentItem.file_size)}</span>
+            {#if $currentItem.category_id}
+              <span class="status-category" style="color: {getCategoryColor($currentItem.category_id)}">
+                {getCategoryName($currentItem.category_id)}
+              </span>
+            {/if}
           {/if}
-        </span>
-        {#if $currentItem}
-          <span class="status-item truncate">{$currentItem.file_name}</span>
-          <span class="status-item">{formatFileSize($currentItem.file_size)}</span>
-          {#if $currentItem.category_id}
-            <span class="status-category" style="color: {getCategoryColor($currentItem.category_id)}">
-              {getCategoryName($currentItem.category_id)}
-            </span>
-          {/if}
-        {/if}
-        <span class="status-item status-right">
-          <kbd>?</kbd> Shortcuts
-        </span>
+          <span class="status-item status-right">
+            <kbd>?</kbd> Shortcuts
+          </span>
+        </div>
       </div>
-    </div>
+    {/snippet}
 
-    <!-- RIGHT PANE: Edit Panel -->
-    <div slot="right" style="height: 100%;">
-      <EditPanel item={$currentItem} />
-    </div>
-
+    {#snippet right()}
+      <div style="height: 100%;">
+        <EditPanel item={$currentItem} />
+      </div>
+    {/snippet}
   </SplitPane>
 </div>
 

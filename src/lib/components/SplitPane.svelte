@@ -1,11 +1,28 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
-  export let minSizes: number[] = [200, 300, 250]; // min widths for panels
-  export let defaultSizes: number[] = [250, 600, 300]; // flex-basis or absolute widths
+  let {
+    minSizes = [200, 300, 250],
+    defaultSizes = [250, 600, 300],
+    left,
+    center,
+    right
+  }: {
+    minSizes?: number[];
+    defaultSizes?: number[];
+    left?: import('svelte').Snippet;
+    center?: import('svelte').Snippet;
+    right?: import('svelte').Snippet;
+  } = $props();
   
-  let container: HTMLDivElement;
-  let sizes = $state([...defaultSizes]);
+  let container = $state<HTMLDivElement>();
+  let sizes = $state<number[]>([]);
+
+  $effect.pre(() => {
+    if (sizes.length === 0) {
+      sizes = [...defaultSizes];
+    }
+  });
   
   let isDragging = $state(false);
   let dragIndex = $state(-1);
@@ -84,27 +101,41 @@
 <div class="split-pane-container" bind:this={container}>
   <!-- Panel 0 (Sidebar) -->
   <div class="split-panel" style="width: {sizes[0]}px;">
-    <slot name="left"></slot>
+    {@render left?.()}
   </div>
 
   <!-- Resizer 0 -->
-  <div class="split-resizer" onpointerdown={(e) => onPointerDown(e, 0)}>
+  <div 
+    class="split-resizer" 
+    onpointerdown={(e) => onPointerDown(e, 0)} 
+    role="separator" 
+    aria-label="Resize panels"
+    aria-valuenow={sizes[0]}
+    tabindex="0"
+  >
     <div class="resizer-handle"></div>
   </div>
 
   <!-- Panel 1 (Main/Center) -->
   <div class="split-panel" style="width: {sizes[1]}px; flex: 1;">
-    <slot name="center"></slot>
+    {@render center?.()}
   </div>
 
   <!-- Resizer 1 -->
-  <div class="split-resizer" onpointerdown={(e) => onPointerDown(e, 1)}>
+  <div 
+    class="split-resizer" 
+    onpointerdown={(e) => onPointerDown(e, 1)} 
+    role="separator" 
+    aria-label="Resize panels"
+    aria-valuenow={sizes[0] + sizes[1]}
+    tabindex="0"
+  >
     <div class="resizer-handle"></div>
   </div>
 
   <!-- Panel 2 (Edit Panel) -->
   <div class="split-panel" style="width: {sizes[2]}px;">
-    <slot name="right"></slot>
+    {@render right?.()}
   </div>
 </div>
 

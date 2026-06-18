@@ -9,10 +9,10 @@
     compact?: boolean;
   } = $props();
 
-  const name = getCategoryName(categoryId);
-  const color = getCategoryColor(categoryId);
+  const name = $derived(getCategoryName(categoryId));
+  const color = $derived(getCategoryColor(categoryId));
 
-  const badgeClass = (() => {
+  const badgeClass = $derived((() => {
     switch (categoryId) {
       case 1: return 'badge-buang';
       case 2: return 'badge-simpan';
@@ -20,7 +20,7 @@
       case 4: return 'badge-review';
       default: return '';
     }
-  })();
+  })());
 </script>
 
 <span class="badge {badgeClass}" class:compact>

@@ -6,7 +6,7 @@
   import { toast } from '$lib/stores/toast';
   import { get } from 'svelte/store';
 
-  export let item: MediaItem | null;
+  let { item }: { item: MediaItem | null } = $props();
 
   // Edit State
   let adjustments = $state({

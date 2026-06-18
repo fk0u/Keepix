@@ -2,8 +2,7 @@
   import { fade, scale } from 'svelte/transition';
   import { t } from '$lib/i18n';
 
-  export let show = false;
-  export let onClose: () => void;
+  let { show = false, onClose }: { show?: boolean; onClose: () => void } = $props();
 </script>
 
 {#if show}

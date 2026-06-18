@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ExifData, MediaItem } from '$lib/types';
   import { formatFileSize } from '$lib/types';
+  import { t } from '$lib/i18n';
 
   let {
     exifData,
@@ -11,6 +12,19 @@
     item: MediaItem | null;
     onClose: () => void;
   } = $props();
+
+  function getBrandLogoText(make: string): string {
+    const m = make.toLowerCase();
+    if (m.includes('sony')) return 'SONY';
+    if (m.includes('canon')) return 'Canon';
+    if (m.includes('nikon')) return 'Nikon';
+    if (m.includes('fujifilm') || m.includes('fuji')) return 'FUJIFILM';
+    if (m.includes('leica')) return 'Leica';
+    if (m.includes('panasonic')) return 'LUMIX';
+    if (m.includes('olympus')) return 'OLYMPUS';
+    if (m.includes('apple')) return ' Apple';
+    return make.toUpperCase();
+  }
 </script>
 
 <aside class="metadata-panel">
@@ -54,25 +68,43 @@
       {#if exifData}
         <!-- Camera info -->
         {#if exifData.camera_model || exifData.lens_model}
-          <section class="meta-section">
-            <h4 class="meta-section-title">Camera</h4>
-            <div class="meta-grid">
-              {#if exifData.camera_make}
-                <div class="meta-row">
-                  <span class="meta-label">Make</span>
-                  <span class="meta-value">{exifData.camera_make}</span>
-                </div>
-              {/if}
+          <section class="meta-section camera-section">
+            <h4 class="meta-section-title">Equipment</h4>
+            
+            {#if exifData.camera_make}
+              <div class="brand-logo">{getBrandLogoText(exifData.camera_make)}</div>
+            {/if}
+
+            <div class="equipment-cards">
               {#if exifData.camera_model}
-                <div class="meta-row">
-                  <span class="meta-label">Model</span>
-                  <span class="meta-value">{exifData.camera_model}</span>
+                <div class="equip-card">
+                  <div class="equip-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                      <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                  </div>
+                  <div class="equip-details">
+                    <span class="equip-label">Body</span>
+                    <span class="equip-name truncate">{exifData.camera_model}</span>
+                  </div>
                 </div>
               {/if}
+              
               {#if exifData.lens_model}
-                <div class="meta-row">
-                  <span class="meta-label">Lens</span>
-                  <span class="meta-value truncate">{exifData.lens_model}</span>
+                <div class="equip-card">
+                  <div class="equip-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="7" y="2" width="10" height="20" rx="2"></rect>
+                      <line x1="7" y1="6" x2="17" y2="6"></line>
+                      <line x1="7" y1="18" x2="17" y2="18"></line>
+                      <line x1="12" y1="2" x2="12" y2="22"></line>
+                    </svg>
+                  </div>
+                  <div class="equip-details">
+                    <span class="equip-label">Lens</span>
+                    <span class="equip-name truncate" title={exifData.lens_model}>{exifData.lens_model}</span>
+                  </div>
                 </div>
               {/if}
             </div>
@@ -270,12 +302,78 @@
     color: var(--text-secondary);
   }
 
-  .panel-empty {
+    .panel-empty {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-tertiary);
     font-size: var(--text-sm);
+  }
+
+  .camera-section {
+    background: var(--surface-card);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-2);
+    margin: var(--space-2) 0;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .brand-logo {
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: var(--text-lg);
+    letter-spacing: 2px;
+    color: var(--text-primary);
+    text-align: center;
+    margin-bottom: var(--space-3);
+    opacity: 0.9;
+  }
+
+  .equipment-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .equip-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--bg-tertiary);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .equip-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+  }
+
+  .equip-details {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .equip-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    font-weight: 600;
+  }
+
+  .equip-name {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    font-weight: 500;
   }
 </style>

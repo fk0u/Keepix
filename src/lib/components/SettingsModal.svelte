@@ -3,19 +3,20 @@
   import { t, locale, setLanguage, type Language } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
 
-  export let show = false;
-  export let onClose: () => void;
+  let { show = false, onClose }: { show?: boolean; onClose: () => void } = $props();
 
-  let currentLang: Language = $locale;
-  let cacheLimit = 300;
+  let currentLang = $state<Language>($locale);
+  let cacheLimit = $state(300);
 
   // Load existing settings when modal opens
-  $: if (show) {
-    currentLang = $locale;
-    invoke('get_setting', { key: 'cache_limit' }).then((val) => {
-      if (val) cacheLimit = parseInt(val as string, 10) || 300;
-    });
-  }
+  $effect(() => {
+    if (show) {
+      currentLang = $locale;
+      invoke('get_setting', { key: 'cache_limit' }).then((val) => {
+        if (val) cacheLimit = parseInt(val as string, 10) || 300;
+      });
+    }
+  });
 
   async function handleSave() {
     await setLanguage(currentLang);

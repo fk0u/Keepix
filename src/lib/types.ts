@@ -30,6 +30,8 @@ export interface MediaItem {
   exif_json: string | null;
   file_hash: string | null;
   date_taken: string | null;
+  adjustments: string | null;
+  applied_preset: string | null;
   created_at: string;
   updated_at: string;
 }
