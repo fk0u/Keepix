@@ -221,3 +221,11 @@ export async function onExportProgress(
     callback(event.payload);
   });
 }
+
+// ============================================================================
+// Image Cache — high-performance image loading
+// ============================================================================
+
+// Re-export the image cache service as the primary way to load images
+export { getImageDataUri, prefetchImages, clearImageCache } from '$lib/services/image-cache';
+

@@ -1,3 +1,4 @@
+mod cache;
 mod commands;
 mod db;
 mod metadata;
@@ -29,6 +30,9 @@ pub fn run() {
                 conn: Mutex::new(conn),
             });
 
+            // Initialize the image cache
+            app.manage(cache::CacheState::new());
+
             log::info!("Keepix initialized. Data dir: {:?}", app_data_dir);
 
             Ok(())
@@ -57,6 +61,10 @@ pub fn run() {
             // Batch operations
             commands::batch_set_category,
             commands::export_media_items,
+            // Image cache
+            commands::read_image_base64,
+            commands::preload_images,
+            commands::clear_image_cache,
             // Utilities
             commands::convert_file_path,
         ])

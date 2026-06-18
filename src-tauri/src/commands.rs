@@ -711,6 +711,41 @@ pub async fn export_media_items(
     Ok(total)
 }
 
+use crate::cache;
+
+// ============================================================================
+// Image cache commands
+// ============================================================================
+
+/// Read an image file and return it as a base64-encoded data URI.
+/// Uses the in-memory LRU cache for high performance.
+#[tauri::command]
+pub fn read_image_base64(
+    cache_state: tauri::State<'_, cache::CacheState>,
+    path: String,
+) -> Result<String, String> {
+    cache::read_image_as_data_uri(&cache_state, &path)
+}
+
+/// Batch-preload images into the LRU cache for faster future access.
+/// Returns the number of images successfully cached.
+#[tauri::command]
+pub fn preload_images(
+    cache_state: tauri::State<'_, cache::CacheState>,
+    paths: Vec<String>,
+) -> Result<usize, String> {
+    Ok(cache::preload_batch(&cache_state, &paths))
+}
+
+/// Clear the entire image cache (useful when switching projects).
+#[tauri::command]
+pub fn clear_image_cache(
+    cache_state: tauri::State<'_, cache::CacheState>,
+) -> Result<(), String> {
+    cache::clear(&cache_state);
+    Ok(())
+}
+
 
 // ============================================================================
 // Utility commands

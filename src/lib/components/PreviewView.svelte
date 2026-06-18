@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { MediaItem } from '$lib/types';
-  import { toAssetUrl } from '$lib/services/tauri-bridge';
   import { getCategoryColor, getCategoryName } from '$lib/types';
   import CategoryBadge from './CategoryBadge.svelte';
   import VideoPlayer from './VideoPlayer.svelte';
   import { compareMode, syncZoom, diagnosticsMode, showHistogram } from '$lib/stores/media';
   import DiagnosticsCanvas from './DiagnosticsCanvas.svelte';
   import Histogram from './Histogram.svelte';
+  import { getImageDataUri, prefetchImages } from '$lib/services/image-cache';
 
   let {
     item,
@@ -24,12 +24,72 @@
   let sharedZoomPos = $state({ x: 50, y: 50 });
   let zoomedPanelId = $state<string | null>(null);
 
+  // Image data URIs loaded via cache
+  let previewImages = $state<Record<string, string>>({});
+  let filmstripImages = $state<Record<string, string>>({});
+
   // Reset zoom when items or selectedIndex changes
   $effect(() => {
     const _mode = $compareMode;
     const _idx = selectedIndex;
     sharedZoomed = false;
     zoomedPanelId = null;
+  });
+
+  // Load preview images when active items change
+  $effect(() => {
+    for (const activeItem of activeItems) {
+      if (activeItem.file_type === 'photo') {
+        const path = activeItem.preview_path || activeItem.file_path;
+        if (path && !previewImages[path]) {
+          getImageDataUri(path).then(uri => {
+            if (uri) {
+              previewImages = { ...previewImages, [path]: uri };
+            }
+          });
+        }
+      }
+    }
+  });
+
+  // Prefetch adjacent preview images for smooth navigation
+  $effect(() => {
+    const adjacentPaths: (string | null)[] = [];
+    for (let i = -2; i <= 3; i++) {
+      const idx = selectedIndex + i;
+      if (idx >= 0 && idx < items.length && items[idx].file_type === 'photo') {
+        adjacentPaths.push(items[idx].preview_path || items[idx].file_path);
+      }
+    }
+    prefetchImages(adjacentPaths);
+  });
+
+  // Load filmstrip thumbnails (visible ones in batches)
+  $effect(() => {
+    // Load a window of thumbnails around current selection
+    const start = Math.max(0, selectedIndex - 20);
+    const end = Math.min(items.length, selectedIndex + 30);
+    const paths: (string | null)[] = [];
+    
+    for (let i = start; i < end; i++) {
+      const p = items[i].thumbnail_path;
+      if (p && !filmstripImages[p]) {
+        paths.push(p);
+      }
+    }
+    
+    if (paths.length > 0) {
+      prefetchImages(paths);
+      paths.forEach(p => {
+        if (p) {
+          getImageDataUri(p).then(uri => {
+            if (uri) {
+              filmstripImages = { ...filmstripImages, [p]: uri };
+            }
+          });
+        }
+      });
+    }
   });
 
   // Calculate items being compared dynamically based on compareMode
@@ -51,6 +111,16 @@
     }
     return [item];
   });
+
+  function getPreviewSrc(mediaItem: MediaItem): string {
+    const path = mediaItem.preview_path || mediaItem.file_path;
+    return previewImages[path] || '';
+  }
+
+  function getFilmstripSrc(mediaItem: MediaItem): string {
+    const path = mediaItem.thumbnail_path;
+    return path ? (filmstripImages[path] || '') : '';
+  }
 
   function handleMouseMove(e: MouseEvent) {
     if (!sharedZoomed) return;
@@ -86,17 +156,18 @@
         role="presentation"
       >
         {#if activeItem.file_type === 'photo'}
-          {#if $diagnosticsMode !== 'none'}
+          {@const src = getPreviewSrc(activeItem)}
+          {#if $diagnosticsMode !== 'none' && src}
             <DiagnosticsCanvas
-              src={toAssetUrl(activeItem.preview_path || activeItem.file_path)}
+              {src}
               mode={$diagnosticsMode}
               style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
                 ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
                 : ''}
             />
-          {:else}
+          {:else if src}
             <img
-              src={toAssetUrl(activeItem.preview_path || activeItem.file_path)}
+              src={src}
               alt={activeItem.file_name}
               class="preview-img"
               style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
@@ -104,6 +175,11 @@
                 : ''}
               draggable="false"
             />
+          {:else}
+            <div class="preview-loading">
+              <div class="loading-spinner"></div>
+              <span>Loading...</span>
+            </div>
           {/if}
         {:else}
           <VideoPlayer item={activeItem} />
@@ -143,6 +219,7 @@
   <!-- Filmstrip -->
   <div class="filmstrip">
     {#each items as filmItem, idx (filmItem.id)}
+      {@const fSrc = getFilmstripSrc(filmItem)}
       <button
         class="filmstrip-item"
         class:active={idx === selectedIndex}
@@ -150,11 +227,10 @@
         onclick={() => onNavigate(idx)}
         style={filmItem.category_id ? `border-color: ${getCategoryColor(filmItem.category_id)}` : ''}
       >
-        {#if filmItem.thumbnail_path}
+        {#if fSrc}
           <img
-            src={toAssetUrl(filmItem.thumbnail_path)}
+            src={fSrc}
             alt=""
-            loading="lazy"
             draggable="false"
           />
         {:else}
@@ -166,9 +242,12 @@
 
   <!-- Histogram Overlay -->
   {#if $showHistogram && item && item.file_type === 'photo'}
-    <div class="histogram-overlay-container">
-      <Histogram src={toAssetUrl(item.preview_path || item.file_path)} />
-    </div>
+    {@const histSrc = getPreviewSrc(item)}
+    {#if histSrc}
+      <div class="histogram-overlay-container">
+        <Histogram src={histSrc} />
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -234,6 +313,29 @@
     object-fit: contain;
     transition: transform 0.1s ease;
     user-select: none;
+  }
+
+  .preview-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+  }
+
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border-subtle);
+    border-top: 3px solid var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .panel-overlay {

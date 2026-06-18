@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { MediaItem, BurstGroup } from '$lib/types';
-  import { toAssetUrl } from '$lib/services/tauri-bridge';
   import { getCategoryColor, getCategoryName } from '$lib/types';
   import CategoryBadge from './CategoryBadge.svelte';
+  import { getImageDataUri, prefetchImages } from '$lib/services/image-cache';
+  import { onMount } from 'svelte';
 
   let {
     items,
@@ -21,6 +22,9 @@
   } = $props();
 
   let gridContainer: HTMLDivElement;
+
+  // Track loaded image data URIs reactively
+  let loadedImages = $state<Record<string, string>>({});
 
   // Helper to check if a grid item is selected based on original selected index
   function isItemSelected(item: MediaItem | BurstGroup, selIndex: number): boolean {
@@ -43,11 +47,56 @@
   // Scroll selected item into view
   $effect(() => {
     if (gridContainer && selectedIndex >= 0) {
-      // Find element that has data-selected="true"
       const el = gridContainer.querySelector('[data-selected="true"]');
       if (el) {
         el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
+    }
+  });
+
+  // Load image via cache when element enters viewport
+  function lazyLoadAction(node: HTMLElement, path: string | null) {
+    if (!path) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            loadImage(path);
+            observer.unobserve(node);
+          }
+        }
+      },
+      { root: gridContainer, rootMargin: '200px' }
+    );
+
+    observer.observe(node);
+
+    return {
+      destroy() {
+        observer.unobserve(node);
+        observer.disconnect();
+      },
+    };
+  }
+
+  async function loadImage(path: string) {
+    if (loadedImages[path]) return;
+    const dataUri = await getImageDataUri(path);
+    if (dataUri) {
+      loadedImages = { ...loadedImages, [path]: dataUri };
+    }
+  }
+
+  // Prefetch visible items when items array changes
+  $effect(() => {
+    if (items.length > 0) {
+      const paths = items.slice(0, 50).map(item => {
+        const displayItem = 'leadItem' in item ? item.leadItem : item;
+        return displayItem.thumbnail_path;
+      }).filter((p): p is string => !!p);
+      
+      prefetchImages(paths);
     }
   });
 </script>
@@ -62,6 +111,7 @@
     {@const displayItem = isBurst ? (item as BurstGroup).leadItem : (item as MediaItem)}
     {@const origIdx = findOriginalIndex(item)}
     {@const selected = isItemSelected(item, selectedIndex)}
+    {@const thumbPath = displayItem.thumbnail_path}
 
     <button
       class="grid-item"
@@ -71,13 +121,12 @@
       onclick={() => onSelect(origIdx)}
       ondblclick={() => onDoubleClick(origIdx, isBurst ? (item as BurstGroup).items : undefined)}
     >
-      <div class="thumb-container">
-        {#if displayItem.thumbnail_path}
+      <div class="thumb-container" use:lazyLoadAction={thumbPath}>
+        {#if thumbPath && loadedImages[thumbPath]}
           <img
-            src={toAssetUrl(displayItem.thumbnail_path)}
+            src={loadedImages[thumbPath]}
             alt={displayItem.file_name}
             class="thumb-img"
-            loading="lazy"
             draggable="false"
           />
         {:else}
@@ -116,6 +165,18 @@
             </svg>
             <span>{(item as BurstGroup).items.length} Burst</span>
           </div>
+        {/if}
+
+        <!-- Color label indicator -->
+        {#if displayItem.color_label}
+          <div class="color-label-dot" style="--label-color: {
+            displayItem.color_label === 'red' ? '#ef4444' :
+            displayItem.color_label === 'orange' ? '#f97316' :
+            displayItem.color_label === 'yellow' ? '#eab308' :
+            displayItem.color_label === 'green' ? '#22c55e' :
+            displayItem.color_label === 'blue' ? '#3b82f6' :
+            displayItem.color_label === 'purple' ? '#a855f7' : 'transparent'
+          }"></div>
         {/if}
 
         <!-- Video indicator -->
@@ -283,6 +344,19 @@
     gap: 4px;
     z-index: 2;
     box-shadow: var(--shadow-sm);
+  }
+
+  .color-label-dot {
+    position: absolute;
+    bottom: var(--space-2);
+    right: var(--space-2);
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-full);
+    background-color: var(--label-color);
+    border: 1.5px solid rgba(255, 255, 255, 0.4);
+    z-index: 2;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
 
   .video-indicator {

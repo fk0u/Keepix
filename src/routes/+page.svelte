@@ -18,6 +18,22 @@
   import type { Project } from '$lib/types';
 
   let isDragging = $state(false);
+  let searchQuery = $state('');
+  let expandedGuide = $state<number | null>(null);
+
+  // Filtered projects based on search
+  let filteredProjects = $derived(
+    searchQuery.trim()
+      ? $projects.filter(p =>
+          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.root_path.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      : $projects
+  );
+
+  // Computed stats
+  let totalPhotos = $derived($projects.reduce((sum, p) => sum + p.total_items, 0));
+  let totalProjects = $derived($projects.length);
 
   onMount(async () => {
     await loadProjects();
@@ -52,6 +68,16 @@
     toast.info('Project removed');
   }
 
+  async function handleRescan(e: MouseEvent, project: Project) {
+    e.stopPropagation();
+    setCurrentProject(project);
+    resetMediaStore();
+    await startScan(project.id, project.root_path);
+    await loadMediaItems(project.id);
+    await loadCategoryStats(project.id);
+    goto('/cull');
+  }
+
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     isDragging = true;
@@ -64,27 +90,59 @@
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     isDragging = false;
-
-    const items = e.dataTransfer?.items;
-    if (items && items.length > 0) {
-      // Note: In Tauri, drag-and-drop of folders is handled differently
-      // For now, use the folder picker
-      toast.info('Use the "Open Folder" button to select a folder');
-    }
+    toast.info('Use the "New Workspace" button to select a folder');
   }
 
   function formatDate(dateStr: string): string {
     try {
       const d = new Date(dateStr);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+
+      if (diffMins < 1) return 'just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+
       return d.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: 'numeric',
+        year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
       });
     } catch {
       return dateStr;
     }
   }
+
+  function toggleGuide(step: number) {
+    expandedGuide = expandedGuide === step ? null : step;
+  }
+
+  const guideSteps = [
+    {
+      title: 'Open a folder',
+      desc: 'Select a folder containing your photos or videos. Keepix will scan and generate thumbnails automatically.',
+      icon: '📂',
+    },
+    {
+      title: 'Categorize with hotkeys',
+      desc: 'Press 1 (Buang/Trash), 2 (Simpan/Best), 3 (Draft), or 4 (Review) to quickly sort your photos.',
+      icon: '⌨️',
+    },
+    {
+      title: 'Rate & Label',
+      desc: 'Use 0-5 for star ratings and 6-9 for color labels. Toggle Auto-Advance with A to speed up workflow.',
+      icon: '⭐',
+    },
+    {
+      title: 'Export your picks',
+      desc: 'Use the Export panel to copy, move, or list your curated selection to a destination folder.',
+      icon: '📤',
+    },
+  ];
 </script>
 
 <div
@@ -95,93 +153,237 @@
   ondrop={handleDrop}
   role="main"
 >
-  <!-- Hero section -->
-  <div class="hero">
-    <div class="logo">
-      <div class="logo-icon">
-        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+  <!-- Animated background -->
+  <div class="home-bg"></div>
+
+  <!-- LEFT SIDEBAR -->
+  <aside class="home-sidebar">
+    <!-- Branding -->
+    <div class="home-sidebar-brand">
+      <div class="brand-logo">
+        <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
           <rect x="4" y="8" width="40" height="32" rx="4" stroke="currentColor" stroke-width="2.5" fill="none"/>
           <circle cx="24" cy="24" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
           <circle cx="24" cy="24" r="3" fill="currentColor"/>
           <circle cx="36" cy="14" r="2" fill="currentColor"/>
         </svg>
       </div>
-      <h1 class="logo-text">Keepix</h1>
+      <div>
+        <h1 class="brand-name">Keepix</h1>
+        <span class="brand-tagline">Photo & Video Culling</span>
+      </div>
     </div>
-    <p class="hero-subtitle">Fast, lightweight photo & video culling</p>
 
-    <button class="btn btn-primary btn-lg open-btn" onclick={handleOpenFolder}>
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-        <line x1="12" y1="11" x2="12" y2="17"/>
-        <line x1="9" y1="14" x2="15" y2="14"/>
-      </svg>
-      Open Folder
-    </button>
-  </div>
+    <!-- Quick Actions -->
+    <div class="sidebar-section">
+      <button class="sidebar-action-btn primary" onclick={handleOpenFolder}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        New Workspace
+      </button>
+    </div>
 
-  <!-- Recent projects -->
-  {#if $projects.length > 0}
-    <div class="projects-section">
-      <h2 class="section-title">Recent Projects</h2>
-      <div class="projects-grid">
-        {#each $projects as project (project.id)}
-          <div
-            class="project-card glass-card"
-            role="button"
-            tabindex="0"
-            onclick={() => openProject(project)}
-            onkeydown={(e) => e.key === 'Enter' && openProject(project)}
-          >
-            <div class="project-card-header">
-              <div class="project-icon">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                </svg>
+    <!-- Getting Started Guide -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Getting Started</div>
+      {#each guideSteps as step, idx}
+        <button class="guide-step" class:expanded={expandedGuide === idx} onclick={() => toggleGuide(idx)}>
+          <div class="guide-step-header">
+            <span class="guide-step-icon">{step.icon}</span>
+            <span class="guide-step-num">{idx + 1}.</span>
+            <span class="guide-step-title">{step.title}</span>
+            <svg class="guide-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </div>
+          {#if expandedGuide === idx}
+            <p class="guide-step-desc">{step.desc}</p>
+          {/if}
+        </button>
+      {/each}
+    </div>
+
+    <!-- Keyboard Reference -->
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Quick Reference</div>
+      <div class="shortcut-grid">
+        <div class="shortcut-row"><kbd>1</kbd><span>Buang (Trash)</span></div>
+        <div class="shortcut-row"><kbd>2</kbd><span>Simpan (Best)</span></div>
+        <div class="shortcut-row"><kbd>3</kbd><span>Draft</span></div>
+        <div class="shortcut-row"><kbd>4</kbd><span>Review</span></div>
+        <div class="shortcut-row"><kbd>Space</kbd><span>Toggle View</span></div>
+        <div class="shortcut-row"><kbd>A</kbd><span>Auto-Advance</span></div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <span class="version-tag">v0.1.0</span>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <div class="home-main">
+    <!-- Header -->
+    <header class="home-header">
+      <div class="header-welcome">
+        <h2 class="welcome-title">Welcome back</h2>
+        <p class="welcome-subtitle">Pick up where you left off, or start a new workspace.</p>
+      </div>
+      {#if $projects.length > 0}
+        <div class="header-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input
+            type="text"
+            placeholder="Search projects..."
+            bind:value={searchQuery}
+            class="search-input"
+          />
+        </div>
+      {/if}
+    </header>
+
+    <!-- Stats Bar -->
+    {#if $projects.length > 0}
+      <div class="stats-bar">
+        <div class="stat-chip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          </svg>
+          <span class="stat-value">{totalProjects}</span>
+          <span class="stat-label">Projects</span>
+        </div>
+        <div class="stat-chip">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span class="stat-value">{totalPhotos.toLocaleString()}</span>
+          <span class="stat-label">Total Items</span>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Projects Content -->
+    <div class="home-content">
+      {#if filteredProjects.length > 0}
+        <div class="content-section-title">Recent Workspaces</div>
+        <div class="projects-grid">
+          {#each filteredProjects as project, idx (project.id)}
+            <div
+              class="project-card glass-card"
+              role="button"
+              tabindex="0"
+              onclick={() => openProject(project)}
+              onkeydown={(e) => e.key === 'Enter' && openProject(project)}
+              style="animation-delay: {idx * 50}ms"
+            >
+              <!-- Cover area with gradient -->
+              <div class="project-cover">
+                <div class="cover-gradient"></div>
+                <div class="cover-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21 15 16 10 5 21"/>
+                  </svg>
+                </div>
+                <div class="project-item-count">
+                  <span>{project.total_items}</span>
+                  <span class="count-label">items</span>
+                </div>
               </div>
-              <button
-                class="btn btn-ghost btn-icon delete-btn"
-                onclick={(e) => handleDeleteProject(e, project.id)}
-                data-tooltip="Delete project"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
+
+              <!-- Card body -->
+              <div class="project-body">
+                <div class="project-card-header">
+                  <h3 class="project-name truncate">{project.name}</h3>
+                  <div class="project-actions">
+                    <button
+                      class="action-btn"
+                      onclick={(e) => handleRescan(e, project)}
+                      data-tooltip="Re-scan"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="23 4 23 10 17 10"/>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                      </svg>
+                    </button>
+                    <button
+                      class="action-btn danger"
+                      onclick={(e) => handleDeleteProject(e, project.id)}
+                      data-tooltip="Remove"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="project-path truncate">{project.root_path}</p>
+                <div class="project-meta">
+                  <span class="meta-time">{formatDate(project.last_opened)}</span>
+                </div>
+              </div>
             </div>
-            <h3 class="project-name truncate">{project.name}</h3>
-            <p class="project-path truncate">{project.root_path}</p>
-            <div class="project-meta">
-              <span>{project.total_items} items</span>
-              <span>{formatDate(project.last_opened)}</span>
+          {/each}
+        </div>
+      {:else if $projects.length > 0 && searchQuery}
+        <div class="empty-search">
+          <p>No projects matching "<strong>{searchQuery}</strong>"</p>
+        </div>
+      {:else}
+        <!-- Empty state / Onboarding -->
+        <div class="onboarding-card glass-card">
+          <div class="onboarding-icon">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </div>
+          <h3 class="onboarding-title">Start Your First Workspace</h3>
+          <p class="onboarding-desc">
+            Select a folder containing your photos or videos to begin culling.
+            Keepix will scan your files, generate thumbnails, and set up your workspace automatically.
+          </p>
+          <button class="btn btn-primary btn-lg onboarding-cta" onclick={handleOpenFolder}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              <line x1="12" y1="11" x2="12" y2="17"/>
+              <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+            Open Folder
+          </button>
+
+          <div class="onboarding-features">
+            <div class="feature-item">
+              <span class="feature-icon">⚡</span>
+              <span>Lightning-fast culling with keyboard shortcuts</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">🔍</span>
+              <span>Focus peaking & exposure diagnostics</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">📊</span>
+              <span>Real-time RGB histogram</span>
+            </div>
+            <div class="feature-item">
+              <span class="feature-icon">📸</span>
+              <span>Smart burst grouping & compare mode</span>
             </div>
           </div>
-        {/each}
-      </div>
+        </div>
+      {/if}
     </div>
-  {/if}
-
-  <!-- Empty state -->
-  {#if $projects.length === 0}
-    <div class="empty-state">
-      <p class="empty-hint">Select a folder containing your photos or videos to start culling</p>
-      <div class="hotkeys-hint">
-        <div class="hotkey-row">
-          <kbd>1</kbd> <span>Buang (Trash)</span>
-        </div>
-        <div class="hotkey-row">
-          <kbd>2</kbd> <span>Simpan (Best)</span>
-        </div>
-        <div class="hotkey-row">
-          <kbd>3</kbd> <span>Draft (Keep)</span>
-        </div>
-        <div class="hotkey-row">
-          <kbd>4</kbd> <span>Review</span>
-        </div>
-      </div>
-    </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -189,13 +391,8 @@
     width: 100%;
     height: 100vh;
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-10);
-    padding: var(--space-8);
     position: relative;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .home.dragging::after {
@@ -210,98 +407,423 @@
     font-size: var(--text-xl);
     color: var(--accent);
     background: var(--accent-soft);
-    z-index: 10;
+    z-index: 100;
     pointer-events: none;
   }
 
-  /* Hero */
-  .hero {
+  /* ===== Animated Background ===== */
+  .home-bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(ellipse at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(168, 85, 247, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 0%, rgba(129, 140, 248, 0.05) 0%, transparent 40%);
+    animation: bgShift 20s ease-in-out infinite alternate;
+  }
+
+  @keyframes bgShift {
+    0% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
+    100% { opacity: 0.8; transform: scale(1); }
+  }
+
+  /* ===== LEFT SIDEBAR ===== */
+  .home-sidebar {
+    width: 280px;
+    height: 100%;
+    background: rgba(17, 17, 20, 0.6);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-right: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: var(--space-5);
-    animation: slideUp 0.5s ease forwards;
+    flex-shrink: 0;
+    z-index: 2;
+    overflow-y: auto;
   }
 
-  .logo {
+  .home-sidebar-brand {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-4);
+    border-bottom: 1px solid var(--border-subtle);
   }
 
-  .logo-icon {
+  .brand-logo {
     color: var(--accent);
-    opacity: 0.9;
+    flex-shrink: 0;
   }
 
-  .logo-text {
-    font-size: var(--text-3xl);
+  .brand-name {
+    font-size: var(--text-xl);
     font-weight: 700;
     background: linear-gradient(135deg, #818cf8, #a78bfa, #c084fc);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
+    line-height: 1.2;
   }
 
-  .hero-subtitle {
-    color: var(--text-secondary);
-    font-size: var(--text-md);
+  .brand-tagline {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    letter-spacing: 0.3px;
   }
 
-  .open-btn {
-    margin-top: var(--space-2);
-    padding: var(--space-3) var(--space-8);
-    font-size: var(--text-md);
+  .sidebar-section {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .sidebar-section-title {
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: var(--space-2);
+  }
+
+  .sidebar-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-3);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-glow);
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
     transition: all var(--transition-base);
   }
 
-  .open-btn:hover {
-    box-shadow: 0 0 30px rgba(99, 102, 241, 0.35);
+  .sidebar-action-btn.primary {
+    background: linear-gradient(135deg, var(--accent), #a78bfa);
+    color: white;
+    box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+  }
+
+  .sidebar-action-btn.primary:hover {
     transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(99, 102, 241, 0.4);
   }
 
-  /* Projects */
-  .projects-section {
+  .sidebar-action-btn.primary:active {
+    transform: translateY(0);
+  }
+
+  /* Guide Steps */
+  .guide-step {
+    display: flex;
+    flex-direction: column;
     width: 100%;
-    max-width: 800px;
-    animation: fadeIn 0.5s ease 0.15s both;
+    padding: var(--space-2) var(--space-2);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    background: none;
+    border: none;
+    text-align: left;
+    font-family: var(--font-sans);
+    transition: background var(--transition-fast);
   }
 
-  .section-title {
+  .guide-step:hover {
+    background: var(--surface-card-hover);
+  }
+
+  .guide-step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+  }
+
+  .guide-step-icon {
+    font-size: var(--text-md);
+    flex-shrink: 0;
+  }
+
+  .guide-step-num {
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--accent);
+    font-family: var(--font-mono);
+  }
+
+  .guide-step-title {
+    flex: 1;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+  }
+
+  .guide-chevron {
+    color: var(--text-tertiary);
+    transition: transform var(--transition-fast);
+    flex-shrink: 0;
+  }
+
+  .guide-step.expanded .guide-chevron {
+    transform: rotate(180deg);
+  }
+
+  .guide-step-desc {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    line-height: 1.5;
+    padding: var(--space-2) 0 0 calc(var(--text-md) + var(--space-2) + var(--space-2));
+    animation: slideDown 0.2s ease;
+  }
+
+  /* Shortcut grid */
+  .shortcut-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-1);
+  }
+
+  .shortcut-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    padding: 2px 0;
+  }
+
+  .shortcut-row kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 4px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 3px;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .version-tag {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    opacity: 0.5;
+  }
+
+  /* ===== MAIN CONTENT ===== */
+  .home-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    z-index: 1;
+    padding: var(--space-8) var(--space-8) var(--space-16);
+  }
+
+  .home-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: var(--space-6);
+    animation: slideUp 0.4s ease forwards;
+  }
+
+  .welcome-title {
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.5px;
+  }
+
+  .welcome-subtitle {
+    font-size: var(--text-sm);
+    color: var(--text-tertiary);
+    margin-top: var(--space-1);
+  }
+
+  .header-search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-3);
+    min-width: 200px;
+    transition: border-color var(--transition-fast);
+  }
+
+  .header-search:focus-within {
+    border-color: var(--accent);
+  }
+
+  .header-search svg {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+  }
+
+  .search-input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    width: 100%;
+  }
+
+  .search-input::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  /* Stats Bar */
+  .stats-bar {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+    animation: slideUp 0.4s ease 0.1s both;
+  }
+
+  .stat-chip {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    background: var(--surface-glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--surface-glass-border);
+    border-radius: var(--radius-full);
+    font-size: var(--text-sm);
+  }
+
+  .stat-chip svg {
+    color: var(--accent);
+    opacity: 0.7;
+  }
+
+  .stat-value {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+  }
+
+  .stat-label {
+    color: var(--text-tertiary);
+  }
+
+  /* Content */
+  .home-content {
+    flex: 1;
+  }
+
+  .content-section-title {
     font-size: var(--text-sm);
     font-weight: 600;
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 1px;
     margin-bottom: var(--space-4);
+    animation: slideUp 0.4s ease 0.15s both;
   }
 
+  /* Projects Grid */
   .projects-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--space-4);
   }
 
   .project-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4);
     cursor: pointer;
-    transition: all var(--transition-base);
+    transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
     text-align: left;
     font-family: var(--font-sans);
     width: 100%;
+    animation: scaleIn 0.35s ease both;
   }
 
   .project-card:hover {
-    background: var(--surface-card-hover);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
     border-color: var(--border-default);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+  }
+
+  .project-cover {
+    position: relative;
+    height: 100px;
+    overflow: hidden;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--bg-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cover-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      135deg,
+      rgba(99, 102, 241, 0.12) 0%,
+      rgba(168, 85, 247, 0.08) 50%,
+      rgba(236, 72, 153, 0.06) 100%
+    );
+  }
+
+  .cover-icon {
+    position: relative;
+    z-index: 1;
+  }
+
+  .project-item-count {
+    position: absolute;
+    bottom: var(--space-2);
+    right: var(--space-2);
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    padding: 2px var(--space-2);
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    border-radius: var(--radius-full);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: white;
+    z-index: 1;
+  }
+
+  .count-label {
+    font-weight: 400;
+    opacity: 0.6;
+    font-size: 9px;
+  }
+
+  .project-body {
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
   }
 
   .project-card-header {
@@ -310,32 +832,47 @@
     justify-content: space-between;
   }
 
-  .project-icon {
-    color: var(--accent);
-    opacity: 0.7;
-  }
-
-  .delete-btn {
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-    min-width: 24px;
-    min-height: 24px;
-    padding: 4px;
-  }
-
-  .project-card:hover .delete-btn {
-    opacity: 0.5;
-  }
-
-  .delete-btn:hover {
-    opacity: 1 !important;
-    color: var(--color-buang);
-  }
-
   .project-name {
     font-size: var(--text-md);
     font-weight: 600;
     color: var(--text-primary);
+    flex: 1;
+    min-width: 0;
+  }
+
+  .project-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+  }
+
+  .project-card:hover .project-actions {
+    opacity: 1;
+  }
+
+  .action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    padding: 0;
+  }
+
+  .action-btn:hover {
+    background: var(--surface-card-hover);
+    color: var(--text-primary);
+  }
+
+  .action-btn.danger:hover {
+    color: var(--color-buang);
   }
 
   .project-path {
@@ -346,55 +883,91 @@
 
   .project-meta {
     display: flex;
-    justify-content: space-between;
-    font-size: var(--text-xs);
-    color: var(--text-tertiary);
+    align-items: center;
+    gap: var(--space-2);
     margin-top: var(--space-1);
   }
 
-  /* Empty state */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-6);
-    animation: fadeIn 0.5s ease 0.3s both;
+  .meta-time {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    opacity: 0.7;
   }
 
-  .empty-hint {
+  /* Empty search */
+  .empty-search {
+    text-align: center;
+    padding: var(--space-12);
     color: var(--text-tertiary);
     font-size: var(--text-sm);
-    text-align: center;
-    max-width: 400px;
   }
 
-  .hotkeys-hint {
+  /* ===== Onboarding ===== */
+  .onboarding-card {
+    max-width: 600px;
+    margin: var(--space-8) auto 0;
+    padding: var(--space-10);
+    text-align: center;
+    animation: scaleIn 0.5s ease;
+  }
+
+  .onboarding-icon {
+    color: var(--accent);
+    opacity: 0.6;
+    margin-bottom: var(--space-4);
+  }
+
+  .onboarding-title {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+  }
+
+  .onboarding-desc {
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    margin-bottom: var(--space-6);
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .onboarding-cta {
+    margin-bottom: var(--space-8);
+    padding: var(--space-3) var(--space-8);
+    font-size: var(--text-md);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-glow);
+    transition: all var(--transition-base);
+  }
+
+  .onboarding-cta:hover {
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.35);
+    transform: translateY(-1px);
+  }
+
+  .onboarding-features {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--space-2) var(--space-6);
+    gap: var(--space-3);
+    text-align: left;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
   }
 
-  .hotkey-row {
+  .feature-item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-2);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     color: var(--text-tertiary);
+    line-height: 1.4;
   }
 
-  kbd {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 24px;
-    height: 24px;
-    padding: 0 6px;
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-default);
-    border-radius: var(--radius-sm);
+  .feature-icon {
+    font-size: var(--text-md);
+    flex-shrink: 0;
   }
 </style>

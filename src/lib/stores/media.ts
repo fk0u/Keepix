@@ -5,7 +5,7 @@
 import { writable, derived, get } from 'svelte/store';
 import type { MediaItem, ViewMode, SortBy, SortOrder, Category, CategoryStats, ExifFilters, DiagnosticsMode, BurstGroup } from '$lib/types';
 import * as bridge from '$lib/services/tauri-bridge';
-
+import { clearImageCache } from '$lib/services/image-cache';
 // ---- Core state ----
 export const mediaItems = writable<MediaItem[]>([]);
 export const totalItems = writable<number>(0);
@@ -310,4 +310,6 @@ export function resetMediaStore() {
   exifFilters.set({ camera_models: [], lens_models: [], color_labels: [] });
   compareMode.set('single');
   categoryStats.set([]);
+  // Clear the image cache when switching projects
+  clearImageCache();
 }
