@@ -13,11 +13,17 @@
     items,
     selectedIndex,
     onNavigate,
+    focusColor = 'red',
+    focusSensitivity = 'medium',
+    gpuAccel = true,
   }: {
     item: MediaItem | null;
     items: MediaItem[];
     selectedIndex: number;
     onNavigate: (index: number) => void;
+    focusColor?: string;
+    focusSensitivity?: string;
+    gpuAccel?: boolean;
   } = $props();
 
   let sharedZoomed = $state(false);
@@ -188,6 +194,9 @@
             <DiagnosticsCanvas
               {src}
               mode={$diagnosticsMode}
+              {focusColor}
+              {focusSensitivity}
+              {gpuAccel}
               style={(sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
                 ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5); `
                 : '') + getAdjustmentStyle(activeItem.adjustments)}

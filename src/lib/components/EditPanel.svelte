@@ -5,6 +5,7 @@
   import { currentItem, displayItems, mediaItems } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
   import { get } from 'svelte/store';
+  import { onMount } from 'svelte';
 
   let { item }: { item: MediaItem | null } = $props();
 
@@ -124,6 +125,16 @@
     activePreset = 'none';
     handleSliderChange();
   }
+
+  onMount(() => {
+    function handleAction(e: Event) {
+      if ((e as CustomEvent).detail === 'reset-adjustments') {
+        handleReset();
+      }
+    }
+    window.addEventListener('keepix-action', handleAction);
+    return () => window.removeEventListener('keepix-action', handleAction);
+  });
 
 </script>
 

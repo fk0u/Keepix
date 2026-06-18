@@ -13,9 +13,9 @@ export type Language = 'en' | 'id';
 const translations = {
   en: {
     // General
-    'app.name': 'Keepix',
+    'app.name': 'Keepix by KOU',
     'app.tagline': 'Photo & Video Culling',
-    'app.version': 'v0.1.0',
+    'app.version': 'v4.0.1',
     'btn.new_workspace': 'New Workspace',
     'btn.open_folder': 'Open Folder',
     
@@ -92,9 +92,9 @@ const translations = {
   },
   id: {
     // General
-    'app.name': 'Keepix',
+    'app.name': 'Keepix by KOU',
     'app.tagline': 'Seleksi Foto & Video',
-    'app.version': 'v0.1.0',
+    'app.version': 'v4.0.1',
     'btn.new_workspace': 'Workspace Baru',
     'btn.open_folder': 'Buka Folder',
     

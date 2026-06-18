@@ -1,6 +1,6 @@
 [package]
 name = "keepix-app"
-version = "0.1.0"
+version = "4.0.1"
 description = "A fast, lightweight photo & video culling application"
 authors = ["Keepix Contributors"]
 edition = "2021"

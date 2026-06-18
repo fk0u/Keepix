@@ -19,12 +19,11 @@
   import { t } from '$lib/i18n';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import AboutModal from '$lib/components/AboutModal.svelte';
+  import { showSettings, showAbout } from '$lib/stores/ui';
 
   let isDragging = $state(false);
   let searchQuery = $state('');
   let expandedGuide = $state<number | null>(null);
-  let showSettings = $state(false);
-  let showAbout = $state(false);
 
   // Filtered projects based on search
   let filteredProjects = $derived(
@@ -40,9 +39,22 @@
   let totalPhotos = $derived($projects.reduce((sum, p) => sum + p.total_items, 0));
   let totalProjects = $derived($projects.length);
 
-  onMount(async () => {
-    await loadProjects();
-    await loadCategories();
+  onMount(() => {
+    loadProjects();
+    loadCategories();
+
+    function handleAction(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      if (detail === 'new-workspace' || detail === 'trigger-folder-picker') {
+        handleOpenFolder();
+      } else if (detail === 'clear-image-cache') {
+        import('$lib/services/image-cache').then(({ clearImageCache }) => {
+          clearImageCache().then(() => toast.success('Image Cache Cleared'));
+        });
+      }
+    }
+    window.addEventListener('keepix-action', handleAction);
+    return () => window.removeEventListener('keepix-action', handleAction);
   });
 
   async function handleOpenFolder() {
@@ -223,20 +235,21 @@
       </div>
     </div>
 
-    <!-- Additional Sidebar Actions -->
-    <div class="sidebar-section mt-auto">
-      <button class="sidebar-text-btn" onclick={() => showSettings = true}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        {$t('settings.title')}
-      </button>
-      <button class="sidebar-text-btn" onclick={() => showAbout = true}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-        {$t('about.title')}
-      </button>
-    </div>
-
-    <!-- Footer -->
+    <!-- Sidebar Footer -->
     <div class="sidebar-footer">
+      <button class="footer-icon-btn" onclick={() => showSettings.set(true)} data-tooltip="Preferences">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <button class="footer-icon-btn" onclick={() => showAbout.set(true)} data-tooltip="About Keepix">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+      </button>
       <span class="version-tag">{$t('app.version')}</span>
     </div>
   </aside>
@@ -403,8 +416,8 @@
   </div>
 </div>
 
-<SettingsModal show={showSettings} onClose={() => showSettings = false} />
-<AboutModal show={showAbout} onClose={() => showAbout = false} />
+<SettingsModal show={$showSettings} onClose={() => showSettings.set(false)} />
+<AboutModal show={$showAbout} onClose={() => showAbout.set(false)} />
 
 <style>
   .home {
@@ -634,14 +647,33 @@
 
   .sidebar-footer {
     margin-top: auto;
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-2) var(--space-4);
     border-top: 1px solid var(--border-subtle);
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--space-3);
   }
 
-  .version-tag {
+  .footer-icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
+  }
+
+  .footer-icon-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .sidebar-footer .version-tag {
+    margin-left: auto;
     font-size: var(--text-xs);
     color: var(--text-tertiary);
     font-family: var(--font-mono);

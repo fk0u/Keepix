@@ -155,25 +155,25 @@
   }
 
   .split-resizer {
-    width: 6px;
-    background: var(--bg-primary);
+    width: 4px;
+    background: transparent;
     cursor: col-resize;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 10;
-    transition: background 0.2s;
+    transition: background 0.15s;
     flex-shrink: 0;
+    border-left: 1px solid var(--border-subtle);
+    border-right: 1px solid var(--border-subtle);
   }
 
   .split-resizer:hover, .split-resizer:active {
-    background: var(--accent-soft);
+    background: var(--accent);
   }
 
   .resizer-handle {
-    width: 2px;
-    height: 24px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
+    width: 0;
+    height: 100%;
   }
 </style>

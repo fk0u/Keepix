@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
-  import { currentProject, scanProgress, isScanning } from '$lib/stores/project';
+  import { currentProject, scanProgress, isScanning, startScan } from '$lib/stores/project';
   import {
     mediaItems, totalItems, selectedIndex, viewMode, isLoading,
     currentItem, categoryFilter, uncategorizedOnly, categoryStats,
@@ -10,8 +10,10 @@
     navigateNext, navigatePrev, navigateTo, toggleViewMode,
     setFilterCategory, setFilterUncategorized, clearFilters,
     categories, compareMode, syncZoom, diagnosticsMode, showHistogram, autoAdvance, displayItems,
+    resetMediaStore,
   } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
+  import { invoke } from '@tauri-apps/api/core';
   import { toAssetUrl } from '$lib/services/tauri-bridge';
   import * as bridge from '$lib/services/tauri-bridge';
   import { getCategoryName, getCategoryColor, formatFileSize, type ExifData, type MediaItem } from '$lib/types';
@@ -21,17 +23,40 @@
   import Toolbar from '$lib/components/Toolbar.svelte';
   import MetadataPanel from '$lib/components/MetadataPanel.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
-  import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
-  import ExportModal from '$lib/components/ExportModal.svelte';
+  import { showShortcuts, showExport } from '$lib/stores/ui';
   import SplitPane from '$lib/components/SplitPane.svelte';
   import EditPanel from '$lib/components/EditPanel.svelte';
+  import { get } from 'svelte/store';
 
   let showMetadata = $state(false);
-  let showShortcuts = $state(false);
-  let showExport = $state(false);
   let exifData = $state<ExifData | null>(null);
   let thumbnailSize = $state(200);
   let categoryFlash = $state<number | null>(null);
+
+  let focusColor = $state('red');
+  let focusSensitivity = $state('medium');
+  let gpuAccel = $state(true);
+
+  async function loadSettings() {
+    try {
+      const valColor = await invoke<string | null>('get_setting', { key: 'focus_color' });
+      if (valColor) focusColor = valColor;
+      const valSens = await invoke<string | null>('get_setting', { key: 'focus_sensitivity' });
+      if (valSens) focusSensitivity = valSens;
+      const valGpu = await invoke<string | null>('get_setting', { key: 'gpu_accel' });
+      if (valGpu) gpuAccel = valGpu === 'true';
+    } catch (err) {
+      console.error('Failed to load focus settings in cull page:', err);
+    }
+  }
+
+  $effect(() => {
+    loadSettings();
+    window.addEventListener('settings-updated', loadSettings);
+    return () => {
+      window.removeEventListener('settings-updated', loadSettings);
+    };
+  });
 
   // ... (rest of logic up to UI) ...
   // Reactive: load EXIF when selected item changes
@@ -101,13 +126,77 @@
         }
       }
     });
+
+    window.addEventListener('keepix-action', handleKeepixAction);
   });
 
   onDestroy(() => {
     if (scanUnlisten) {
       scanUnlisten();
     }
+    window.removeEventListener('keepix-action', handleKeepixAction);
   });
+
+  function handleKeepixAction(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    switch (detail) {
+      case 'new-workspace':
+        goto('/');
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('keepix-action', { detail: 'trigger-folder-picker' }));
+        }, 300);
+        break;
+      case 'rescan-project':
+        if ($currentProject) {
+          resetMediaStore();
+          startScan($currentProject.id, $currentProject.root_path);
+          loadMediaItems($currentProject.id);
+          loadCategoryStats($currentProject.id);
+        }
+        break;
+      case 'undo':
+        handleUndo();
+        break;
+      case 'view-grid':
+        viewMode.set('grid');
+        break;
+      case 'view-preview':
+        viewMode.set('preview');
+        break;
+      case 'compare-single':
+        compareMode.set('single');
+        break;
+      case 'compare-2up':
+        compareMode.set('2-up');
+        break;
+      case 'compare-4up':
+        compareMode.set('4-up');
+        break;
+      case 'toggle-metadata':
+        showMetadata = !showMetadata;
+        break;
+      case 'toggle-histogram':
+        showHistogram.update(h => !h);
+        break;
+      case 'toggle-overlay':
+        diagnosticsMode.update(mode => {
+          if (mode === 'none') return 'peaking';
+          if (mode === 'peaking') return 'zebra';
+          return 'none';
+        });
+        break;
+      case 'clear-image-cache':
+        import('$lib/services/image-cache').then(({ clearImageCache }) => {
+          clearImageCache().then(() => {
+            toast.success('Image Cache Cleared');
+            if ($currentProject) {
+              loadMediaItems($currentProject.id);
+            }
+          });
+        });
+        break;
+    }
+  }
 
   async function loadExif(mediaId: string) {
     try {
@@ -257,7 +346,7 @@
 
       // Show shortcuts
       case '?':
-        showShortcuts = !showShortcuts;
+        showShortcuts.update(s => !s);
         break;
 
       // Toggle metadata panel
@@ -267,8 +356,8 @@
 
       // Go home
       case 'Escape':
-        if (showShortcuts) {
-          showShortcuts = false;
+        if (get(showShortcuts)) {
+          showShortcuts.set(false);
         } else if ($viewMode === 'preview') {
           viewMode.set('grid');
         }
@@ -323,7 +412,7 @@
   <SplitPane minSizes={[240, 400, 260]} defaultSizes={[280, 800, 320]}>
     {#snippet left()}
       <div style="height: 100%;">
-        <Sidebar onOpenExport={() => showExport = true} />
+        <Sidebar onOpenExport={() => showExport.set(true)} />
       </div>
     {/snippet}
 
@@ -332,7 +421,7 @@
         <Toolbar
           bind:thumbnailSize={thumbnailSize}
           bind:showMetadata={showMetadata}
-          onShowShortcuts={() => showShortcuts = true}
+          onShowShortcuts={() => showShortcuts.set(true)}
           onGoHome={() => goto('/')}
         />
 
@@ -363,6 +452,9 @@
                 items={$mediaItems}
                 selectedIndex={$selectedIndex}
                 onNavigate={navigateTo}
+                {focusColor}
+                {focusSensitivity}
+                {gpuAccel}
               />
             {/if}
 
@@ -421,15 +513,6 @@
   </SplitPane>
 </div>
 
-<!-- Keyboard shortcuts modal -->
-{#if showShortcuts}
-  <KeyboardShortcutsModal onClose={() => showShortcuts = false} />
-{/if}
-
-<!-- Export modal -->
-{#if showExport}
-  <ExportModal onClose={() => showExport = false} />
-{/if}
 
 <style>
   .cull-workspace {

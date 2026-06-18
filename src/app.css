@@ -8,57 +8,114 @@
 
 /* ---------- CSS Custom Properties ---------- */
 :root {
-  /* Color Palette — Dark mode */
-  --bg-primary: #0a0a0c;
-  --bg-secondary: #111114;
-  --bg-tertiary: #1a1a1f;
-  --bg-elevated: #222228;
-  --bg-hover: #2a2a32;
-  --bg-active: #333340;
+  /* Default: DaVinci Resolve Dark theme (Cool industrial grey) */
+  --bg-primary: #101011;
+  --bg-secondary: #161618;
+  --bg-tertiary: #1e1e21;
+  --bg-elevated: #28282b;
+  --bg-hover: #323237;
+  --bg-active: #3a3a40;
 
   /* Surface colors */
   --surface-card: rgba(255, 255, 255, 0.03);
-  --surface-card-hover: rgba(255, 255, 255, 0.08);
-  --surface-overlay: rgba(0, 0, 0, 0.7);
-  --surface-glass: rgba(17, 17, 20, 0.65);
-  --surface-glass-border: rgba(255, 255, 255, 0.08);
+  --surface-card-hover: rgba(255, 255, 255, 0.07);
+  --surface-overlay: rgba(0, 0, 0, 0.75);
+  --surface-glass: rgba(22, 22, 24, 0.7);
+  --surface-glass-border: rgba(255, 255, 255, 0.05);
 
   /* Text colors */
-  --text-primary: #f0f0f5;
-  --text-secondary: #a0a0b0;
-  --text-tertiary: #6b6b7b;
-  --text-inverse: #0a0a0c;
+  --text-primary: #e2e2e7;
+  --text-secondary: #9a9ab0;
+  --text-tertiary: #5d5d6c;
+  --text-inverse: #101011;
 
   /* Category colors */
   --color-buang: #ef4444;
-  --color-buang-soft: rgba(239, 68, 68, 0.15);
+  --color-buang-soft: rgba(239, 68, 68, 0.12);
   --color-simpan: #22c55e;
-  --color-simpan-soft: rgba(34, 197, 94, 0.15);
+  --color-simpan-soft: rgba(34, 197, 94, 0.12);
   --color-draft: #f59e0b;
-  --color-draft-soft: rgba(245, 158, 11, 0.15);
-  --color-review: #6366f1;
-  --color-review-soft: rgba(99, 102, 241, 0.15);
+  --color-draft-soft: rgba(245, 158, 11, 0.12);
+  --color-review: #3b82f6;
+  --color-review-soft: rgba(59, 130, 246, 0.12);
 
   /* Accent */
-  --accent: #818cf8;
-  --accent-hover: #6366f1;
-  --accent-soft: rgba(129, 140, 248, 0.12);
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-soft: rgba(37, 99, 235, 0.15);
+  --accent-light: #60a5fa;
 
   /* Star rating */
-  --color-star: #facc15;
-  --color-star-empty: #3a3a44;
+  --color-star: #eab308;
+  --color-star-empty: #2e2e34;
 
   /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-default: rgba(255, 255, 255, 0.1);
-  --border-strong: rgba(255, 255, 255, 0.15);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.12);
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  --shadow-glow: 0 0 24px rgba(129, 140, 248, 0.25);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.2);
+}
 
+/* --- Specific Theme Overrides --- */
+
+.theme-resolve-dark {
+  /* Standard cool gray settings (redundant but ensures clarity) */
+  --bg-primary: #101011;
+  --bg-secondary: #161618;
+  --bg-tertiary: #1e1e21;
+  --bg-elevated: #28282b;
+  --bg-hover: #323237;
+  --bg-active: #3a3a40;
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-soft: rgba(37, 99, 235, 0.15);
+  --accent-light: #60a5fa;
+  --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.2);
+}
+
+.theme-lightroom {
+  /* Lightroom Warm Grey & Amber theme */
+  --bg-primary: #161616;
+  --bg-secondary: #1e1e1e;
+  --bg-tertiary: #272727;
+  --bg-elevated: #323232;
+  --bg-hover: #3e3e3e;
+  --bg-active: #4a4a4a;
+  
+  --accent: #d97706;
+  --accent-hover: #f59e0b;
+  --accent-soft: rgba(217, 119, 6, 0.15);
+  --accent-light: #fbbf24;
+  --shadow-glow: 0 0 20px rgba(217, 119, 6, 0.2);
+}
+
+.theme-cyberpunk {
+  /* Neon Pink & Cyan Cyberpunk style */
+  --bg-primary: #040408;
+  --bg-secondary: #080812;
+  --bg-tertiary: #0f0f22;
+  --bg-elevated: #161633;
+  --bg-hover: #21214a;
+  --bg-active: #2b2b63;
+  
+  --accent: #db2777;
+  --accent-hover: #f43f5e;
+  --accent-soft: rgba(219, 39, 119, 0.18);
+  --accent-light: #f472b6;
+  
+  --border-subtle: rgba(6, 182, 212, 0.12);
+  --border-default: rgba(6, 182, 212, 0.25);
+  --border-strong: rgba(6, 182, 212, 0.4);
+  
+  --shadow-glow: 0 0 24px rgba(219, 39, 119, 0.25);
+}
+
+:root {
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Consolas', monospace;
@@ -472,4 +529,76 @@ img {
 
 [data-tooltip]:hover::after {
   opacity: 1;
+}
+
+/* Custom range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+/* Track styling */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: rgba(255, 255, 255, 0.08);
+  height: 4px;
+  border-radius: 2px;
+  border: none;
+  transition: background 0.1s ease;
+}
+
+input[type="range"]:hover::-webkit-slider-runnable-track {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Thumb styling */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px; /* Centers the thumb on the track */
+  background-color: var(--accent);
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background-color: var(--accent-hover);
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+  background-color: white;
+}
+
+/* Firefox support */
+input[type="range"]::-moz-range-track {
+  background: rgba(255, 255, 255, 0.08);
+  height: 4px;
+  border-radius: 2px;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background-color: var(--accent);
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.2);
+  background-color: var(--accent-hover);
 }

@@ -151,6 +151,15 @@ pub async fn scan_folder(
         db::update_project_stats(&conn, &project_id).map_err(|e| e.to_string())?;
     }
 
+    // Get cpu_threads preference setting
+    let cpu_threads = {
+        let conn = state.conn.lock().map_err(|e| e.to_string())?;
+        db::get_setting(&conn, "cpu_threads")
+            .unwrap_or(None)
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(4)
+    };
+
     // Phase 3: Generate thumbnails in background
     let app_data_dir = app
         .path()
@@ -173,57 +182,122 @@ pub async fn scan_folder(
 
     std::thread::spawn(move || {
         let total = items_for_thumbs.len();
+        
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(cpu_threads)
+            .build();
 
-        for (idx, item) in items_for_thumbs.iter().enumerate() {
-            let result = if item.file_type == "photo" {
-                thumbnail::generate_thumbnails(
-                    Path::new(&item.file_path),
-                    &thumb_dir,
-                    &item.id,
-                )
-            } else {
-                thumbnail::generate_video_placeholder(&thumb_dir, &item.id)
-            };
+        if let Ok(pool) = pool {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            use rayon::prelude::*;
+            let progress_counter = AtomicUsize::new(0);
 
-            if let Ok(thumb_result) = &result {
-                if let Ok(conn) = db_state.conn.lock() {
-                    db::update_thumbnail(
-                        &conn,
-                        &item.id,
-                        &thumb_result.thumbnail_path,
-                        Some(&thumb_result.preview_path),
-                    )
-                    .ok();
+            pool.install(|| {
+                items_for_thumbs.par_iter().for_each(|item| {
+                    let result = if item.file_type == "photo" {
+                        thumbnail::generate_thumbnails(
+                            Path::new(&item.file_path),
+                            &thumb_dir,
+                            &item.id,
+                        )
+                    } else {
+                        thumbnail::generate_video_placeholder(&thumb_dir, &item.id)
+                    };
 
-                    // Also read and store EXIF for photos
-                    if item.file_type == "photo" {
-                        let exif = metadata::read_exif(Path::new(&item.file_path));
-                        if let Ok(exif_json) = serde_json::to_string(&exif) {
-                            db::update_exif(
+                    if let Ok(thumb_result) = &result {
+                        if let Ok(conn) = db_state.conn.lock() {
+                            db::update_thumbnail(
                                 &conn,
                                 &item.id,
-                                &exif_json,
-                                exif.width.map(|w| w as i32),
-                                exif.height.map(|h| h as i32),
+                                &thumb_result.thumbnail_path,
+                                Some(&thumb_result.preview_path),
                             )
                             .ok();
+
+                            // Also read and store EXIF for photos
+                            if item.file_type == "photo" {
+                                let exif = metadata::read_exif(Path::new(&item.file_path));
+                                if let Ok(exif_json) = serde_json::to_string(&exif) {
+                                    db::update_exif(
+                                        &conn,
+                                        &item.id,
+                                        &exif_json,
+                                        exif.width.map(|w| w as i32),
+                                        exif.height.map(|h| h as i32),
+                                    )
+                                    .ok();
+                                }
+                            }
+                        }
+                    }
+
+                    // Emit progress
+                    let current = progress_counter.fetch_add(1, Ordering::SeqCst) + 1;
+                    app_clone
+                        .emit(
+                            "scan-progress",
+                            ScanProgressEvent {
+                                phase: "thumbnails".to_string(),
+                                current,
+                                total,
+                                current_file: item.file_name.clone(),
+                            },
+                        )
+                        .ok();
+                });
+            });
+        } else {
+            // Fallback to sequential
+            for (idx, item) in items_for_thumbs.iter().enumerate() {
+                let result = if item.file_type == "photo" {
+                    thumbnail::generate_thumbnails(
+                        Path::new(&item.file_path),
+                        &thumb_dir,
+                        &item.id,
+                    )
+                } else {
+                    thumbnail::generate_video_placeholder(&thumb_dir, &item.id)
+                };
+
+                if let Ok(thumb_result) = &result {
+                    if let Ok(conn) = db_state.conn.lock() {
+                        db::update_thumbnail(
+                            &conn,
+                            &item.id,
+                            &thumb_result.thumbnail_path,
+                            Some(&thumb_result.preview_path),
+                        )
+                        .ok();
+
+                        if item.file_type == "photo" {
+                            let exif = metadata::read_exif(Path::new(&item.file_path));
+                            if let Ok(exif_json) = serde_json::to_string(&exif) {
+                                db::update_exif(
+                                    &conn,
+                                    &item.id,
+                                    &exif_json,
+                                    exif.width.map(|w| w as i32),
+                                    exif.height.map(|h| h as i32),
+                                )
+                                .ok();
+                            }
                         }
                     }
                 }
-            }
 
-            // Emit progress
-            app_clone
-                .emit(
-                    "scan-progress",
-                    ScanProgressEvent {
-                        phase: "thumbnails".to_string(),
-                        current: idx + 1,
-                        total,
-                        current_file: item.file_name.clone(),
-                    },
-                )
-                .ok();
+                // Emit progress
+                app_clone
+                    .emit(
+                        "scan-progress",
+                        ScanProgressEvent {
+                            phase: "thumbnails".to_string(),
+                            current: idx + 1,
+                            total,
+                            current_file: item.file_name.clone(),
+                        },
+                    )
+                    .ok();
+            }
         }
 
         // Emit completion

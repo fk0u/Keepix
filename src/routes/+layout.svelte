@@ -3,9 +3,18 @@
   import { toasts, dismissToast } from '$lib/stores/toast';
   import { initLanguage } from '$lib/i18n';
   import { onMount } from 'svelte';
+  
+  // Import global components and stores
+  import MenuBar from '$lib/components/MenuBar.svelte';
+  import SettingsModal from '$lib/components/SettingsModal.svelte';
+  import AboutModal from '$lib/components/AboutModal.svelte';
+  import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
+  import ExportModal from '$lib/components/ExportModal.svelte';
+  import { showSettings, showAbout, showShortcuts, showExport, initTheme } from '$lib/stores/ui';
 
   onMount(() => {
     initLanguage();
+    initTheme();
   });
 
   // Snippet-based slot for Svelte 5
@@ -13,8 +22,25 @@
 </script>
 
 <div id="app-root">
-  {@render children()}
+  <MenuBar />
+  <div id="app-content">
+    {@render children()}
+  </div>
 </div>
+
+<!-- Global Modals Overlay -->
+{#if $showSettings}
+  <SettingsModal show={$showSettings} onClose={() => showSettings.set(false)} />
+{/if}
+{#if $showAbout}
+  <AboutModal show={$showAbout} onClose={() => showAbout.set(false)} />
+{/if}
+{#if $showShortcuts}
+  <KeyboardShortcutsModal onClose={() => showShortcuts.set(false)} />
+{/if}
+{#if $showExport}
+  <ExportModal onClose={() => showExport.set(false)} />
+{/if}
 
 <!-- Toast notifications -->
 {#if $toasts.length > 0}
@@ -44,6 +70,14 @@
   #app-root {
     width: 100%;
     height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #app-content {
+    flex: 1;
+    width: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
