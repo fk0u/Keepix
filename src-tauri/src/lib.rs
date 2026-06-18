@@ -65,6 +65,11 @@ pub fn run() {
             commands::read_image_base64,
             commands::preload_images,
             commands::clear_image_cache,
+            // Settings & Adjustments
+            commands::save_adjustments,
+            commands::save_applied_preset,
+            commands::get_setting,
+            commands::set_setting,
             // Utilities
             commands::convert_file_path,
         ])

@@ -96,9 +96,9 @@ pub fn scan_directory(root_path: &Path) -> Vec<ScannedFile> {
     files
 }
 
-/// Get the thumbnail cache directory for a project
-pub fn get_thumbnail_dir(app_data_dir: &Path, project_id: &str) -> PathBuf {
-    let dir = app_data_dir.join("thumbnails").join(project_id);
+/// Get the thumbnail cache directory for a project (stored in workspace/.keepix/previews)
+pub fn get_thumbnail_dir(project_root: &Path) -> PathBuf {
+    let dir = project_root.join(".keepix").join("previews");
     std::fs::create_dir_all(&dir).ok();
     dir
 }

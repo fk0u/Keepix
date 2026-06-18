@@ -138,6 +138,8 @@ pub async fn scan_folder(
             exif_json: None,
             file_hash: None,
             date_taken: f.modified_at.clone(),
+            adjustments: None,
+            applied_preset: None,
             created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             updated_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         })
@@ -154,7 +156,7 @@ pub async fn scan_folder(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?;
-    let thumb_dir = scanner::get_thumbnail_dir(&app_data_dir, &project_id);
+    let thumb_dir = scanner::get_thumbnail_dir(Path::new(&folder_path));
     let app_clone = app.clone();
 
     // Clone state for the background thread — must be done before moving into closure
@@ -746,6 +748,48 @@ pub fn clear_image_cache(
     Ok(())
 }
 
+// ============================================================================
+// Settings & Adjustments commands
+// ============================================================================
+
+#[tauri::command]
+pub fn save_adjustments(
+    db_state: tauri::State<'_, db::DbState>,
+    media_id: String,
+    adjustments_json: Option<String>,
+) -> Result<(), String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    db::update_adjustments(&conn, &media_id, adjustments_json.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_applied_preset(
+    db_state: tauri::State<'_, db::DbState>,
+    media_id: String,
+    preset_name: Option<String>,
+) -> Result<(), String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    db::update_applied_preset(&conn, &media_id, preset_name.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_setting(
+    db_state: tauri::State<'_, db::DbState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_setting(&conn, &key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_setting(
+    db_state: tauri::State<'_, db::DbState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    db::set_setting(&conn, &key, &value).map_err(|e| e.to_string())
+}
 
 // ============================================================================
 // Utility commands

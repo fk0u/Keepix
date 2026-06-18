@@ -38,6 +38,8 @@ pub struct MediaItem {
     pub exif_json: Option<String>,
     pub file_hash: Option<String>,
     pub date_taken: Option<String>,
+    pub adjustments: Option<String>,
+    pub applied_preset: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -161,6 +163,22 @@ fn run_migrations(conn: &Connection) -> Result<()> {
                 (4, 'Review', '#6366f1', 'eye', '4', 4);
 
             PRAGMA user_version = 1;
+            ",
+        )?;
+    }
+
+    if user_version < 2 {
+        conn.execute_batch(
+            "
+            ALTER TABLE media_items ADD COLUMN adjustments TEXT;
+            ALTER TABLE media_items ADD COLUMN applied_preset TEXT;
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            PRAGMA user_version = 2;
             ",
         )?;
     }
@@ -311,7 +329,7 @@ pub fn get_media_items(
         "SELECT id, project_id, file_path, file_name, file_type, file_size,
                 width, height, category_id, star_rating, color_label,
                 thumbnail_path, preview_path, exif_json, file_hash, date_taken,
-                created_at, updated_at
+                adjustments, applied_preset, created_at, updated_at
          FROM media_items 
          WHERE project_id = :project_id
            AND (:category_filter IS NULL OR category_id = :category_filter)
@@ -357,8 +375,10 @@ pub fn get_media_items(
                     exif_json: row.get(13)?,
                     file_hash: row.get(14)?,
                     date_taken: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
+                    adjustments: row.get(16)?,
+                    applied_preset: row.get(17)?,
+                    created_at: row.get(18)?,
+                    updated_at: row.get(19)?,
                 })
             },
         )?
@@ -553,7 +573,7 @@ pub fn get_media_item(conn: &Connection, media_id: &str) -> Result<MediaItem> {
         "SELECT id, project_id, file_path, file_name, file_type, file_size,
                 width, height, category_id, star_rating, color_label,
                 thumbnail_path, preview_path, exif_json, file_hash, date_taken,
-                created_at, updated_at
+                adjustments, applied_preset, created_at, updated_at
          FROM media_items WHERE id = ?1",
         params![media_id],
         |row| {
@@ -574,8 +594,10 @@ pub fn get_media_item(conn: &Connection, media_id: &str) -> Result<MediaItem> {
                 exif_json: row.get(13)?,
                 file_hash: row.get(14)?,
                 date_taken: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
+                adjustments: row.get(16)?,
+                applied_preset: row.get(17)?,
+                created_at: row.get(18)?,
+                updated_at: row.get(19)?,
             })
         },
     )
@@ -689,4 +711,45 @@ pub fn get_unique_exif_metadata(conn: &Connection, project_id: &str) -> Result<E
         lens_models,
         color_labels,
     })
+}
+
+// ============================================================================
+// Settings & Adjustments
+// ============================================================================
+
+/// Update adjustments for a media item
+pub fn update_adjustments(conn: &Connection, media_id: &str, adjustments_json: Option<&str>) -> Result<()> {
+    conn.execute(
+        "UPDATE media_items SET adjustments = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![adjustments_json, media_id],
+    )?;
+    Ok(())
+}
+
+/// Update applied preset for a media item
+pub fn update_applied_preset(conn: &Connection, media_id: &str, preset_name: Option<&str>) -> Result<()> {
+    conn.execute(
+        "UPDATE media_items SET applied_preset = ?1, updated_at = datetime('now') WHERE id = ?2",
+        params![preset_name, media_id],
+    )?;
+    Ok(())
+}
+
+/// Get a setting value by key
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    let value = conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    ).ok();
+    Ok(value)
+}
+
+/// Set a setting value
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    )?;
+    Ok(())
 }

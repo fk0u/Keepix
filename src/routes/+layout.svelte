@@ -1,6 +1,12 @@
 <script lang="ts">
   import '../app.css';
   import { toasts, dismissToast } from '$lib/stores/toast';
+  import { initLanguage } from '$lib/i18n';
+  import { onMount } from 'svelte';
+
+  onMount(() => {
+    initLanguage();
+  });
 
   // Snippet-based slot for Svelte 5
   let { children } = $props<{ children: any }>();

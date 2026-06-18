@@ -141,6 +141,33 @@
       zoomedPanelId = itemId;
     }
   }
+
+  function getAdjustmentStyle(adjustmentsJson: string | null): string {
+    if (!adjustmentsJson) return '';
+    try {
+      const adj = JSON.parse(adjustmentsJson);
+      
+      // Basic mappings
+      // exposure: brightness (-100 to 100 -> 0 to 2)
+      const brightness = 1 + (adj.exposure / 100);
+      // contrast: (-100 to 100 -> 0 to 2)
+      const contrast = 1 + (adj.contrast / 100);
+      // saturation: (-100 to 100 -> 0 to 2)
+      const saturate = 1 + (adj.saturation / 100);
+      // sepia/temperature simulation (very basic mapping for now)
+      let sepia = 0;
+      let hueRotate = 0;
+      if (adj.temperature > 0) {
+        sepia = adj.temperature / 100;
+      } else if (adj.temperature < 0) {
+        hueRotate = adj.temperature * -1; // arbitrary mapping
+      }
+      
+      return `filter: brightness(${brightness}) contrast(${contrast}) saturate(${saturate}) sepia(${sepia}) hue-rotate(${hueRotate}deg);`;
+    } catch {
+      return '';
+    }
+  }
 </script>
 
 <div class="preview-view">
@@ -161,18 +188,18 @@
             <DiagnosticsCanvas
               {src}
               mode={$diagnosticsMode}
-              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
-                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
-                : ''}
+              style={(sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5); `
+                : '') + getAdjustmentStyle(activeItem.adjustments)}
             />
           {:else if src}
             <img
               src={src}
               alt={activeItem.file_name}
               class="preview-img"
-              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
-                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
-                : ''}
+              style={(sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5); `
+                : '') + getAdjustmentStyle(activeItem.adjustments)}
               draggable="false"
             />
           {:else}

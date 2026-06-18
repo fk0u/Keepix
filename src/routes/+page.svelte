@@ -16,10 +16,15 @@
   import { resetMediaStore, loadMediaItems, loadCategories, loadCategoryStats } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
   import type { Project } from '$lib/types';
+  import { t } from '$lib/i18n';
+  import SettingsModal from '$lib/components/SettingsModal.svelte';
+  import AboutModal from '$lib/components/AboutModal.svelte';
 
   let isDragging = $state(false);
   let searchQuery = $state('');
   let expandedGuide = $state<number | null>(null);
+  let showSettings = $state(false);
+  let showAbout = $state(false);
 
   // Filtered projects based on search
   let filteredProjects = $derived(
@@ -121,28 +126,29 @@
     expandedGuide = expandedGuide === step ? null : step;
   }
 
-  const guideSteps = [
+  // Guide steps derived from i18n to ensure reactivity on language change
+  let guideSteps = $derived([
     {
-      title: 'Open a folder',
-      desc: 'Select a folder containing your photos or videos. Keepix will scan and generate thumbnails automatically.',
+      title: $t('guide.step1.title'),
+      desc: $t('guide.step1.desc'),
       icon: '📂',
     },
     {
-      title: 'Categorize with hotkeys',
-      desc: 'Press 1 (Buang/Trash), 2 (Simpan/Best), 3 (Draft), or 4 (Review) to quickly sort your photos.',
+      title: $t('guide.step2.title'),
+      desc: $t('guide.step2.desc'),
       icon: '⌨️',
     },
     {
-      title: 'Rate & Label',
-      desc: 'Use 0-5 for star ratings and 6-9 for color labels. Toggle Auto-Advance with A to speed up workflow.',
+      title: $t('guide.step3.title'),
+      desc: $t('guide.step3.desc'),
       icon: '⭐',
     },
     {
-      title: 'Export your picks',
-      desc: 'Use the Export panel to copy, move, or list your curated selection to a destination folder.',
+      title: $t('guide.step4.title'),
+      desc: $t('guide.step4.desc'),
       icon: '📤',
     },
-  ];
+  ]);
 </script>
 
 <div
@@ -169,8 +175,8 @@
         </svg>
       </div>
       <div>
-        <h1 class="brand-name">Keepix</h1>
-        <span class="brand-tagline">Photo & Video Culling</span>
+        <h1 class="brand-name">{$t('app.name')}</h1>
+        <span class="brand-tagline">{$t('app.tagline')}</span>
       </div>
     </div>
 
@@ -180,7 +186,7 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M5 12h14"/>
         </svg>
-        New Workspace
+        {$t('btn.new_workspace')}
       </button>
     </div>
 
@@ -206,20 +212,32 @@
 
     <!-- Keyboard Reference -->
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Quick Reference</div>
+      <div class="sidebar-section-title">{$t('ref.title')}</div>
       <div class="shortcut-grid">
-        <div class="shortcut-row"><kbd>1</kbd><span>Buang (Trash)</span></div>
-        <div class="shortcut-row"><kbd>2</kbd><span>Simpan (Best)</span></div>
-        <div class="shortcut-row"><kbd>3</kbd><span>Draft</span></div>
-        <div class="shortcut-row"><kbd>4</kbd><span>Review</span></div>
-        <div class="shortcut-row"><kbd>Space</kbd><span>Toggle View</span></div>
-        <div class="shortcut-row"><kbd>A</kbd><span>Auto-Advance</span></div>
+        <div class="shortcut-row"><kbd>1</kbd><span>{$t('ref.trash')}</span></div>
+        <div class="shortcut-row"><kbd>2</kbd><span>{$t('ref.best')}</span></div>
+        <div class="shortcut-row"><kbd>3</kbd><span>{$t('ref.draft')}</span></div>
+        <div class="shortcut-row"><kbd>4</kbd><span>{$t('ref.review')}</span></div>
+        <div class="shortcut-row"><kbd>Space</kbd><span>{$t('ref.toggle_view')}</span></div>
+        <div class="shortcut-row"><kbd>A</kbd><span>{$t('ref.auto_advance')}</span></div>
       </div>
+    </div>
+
+    <!-- Additional Sidebar Actions -->
+    <div class="sidebar-section mt-auto">
+      <button class="sidebar-text-btn" onclick={() => showSettings = true}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        {$t('settings.title')}
+      </button>
+      <button class="sidebar-text-btn" onclick={() => showAbout = true}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        {$t('about.title')}
+      </button>
     </div>
 
     <!-- Footer -->
     <div class="sidebar-footer">
-      <span class="version-tag">v0.1.0</span>
+      <span class="version-tag">{$t('app.version')}</span>
     </div>
   </aside>
 
@@ -228,8 +246,8 @@
     <!-- Header -->
     <header class="home-header">
       <div class="header-welcome">
-        <h2 class="welcome-title">Welcome back</h2>
-        <p class="welcome-subtitle">Pick up where you left off, or start a new workspace.</p>
+        <h2 class="welcome-title">{$t('home.welcome')}</h2>
+        <p class="welcome-subtitle">{$t('home.subtitle')}</p>
       </div>
       {#if $projects.length > 0}
         <div class="header-search">
@@ -239,7 +257,7 @@
           </svg>
           <input
             type="text"
-            placeholder="Search projects..."
+            placeholder={$t('home.search')}
             bind:value={searchQuery}
             class="search-input"
           />
@@ -255,7 +273,7 @@
             <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
           </svg>
           <span class="stat-value">{totalProjects}</span>
-          <span class="stat-label">Projects</span>
+          <span class="stat-label">{$t('home.stats.projects')}</span>
         </div>
         <div class="stat-chip">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -264,7 +282,7 @@
             <polyline points="21 15 16 10 5 21"/>
           </svg>
           <span class="stat-value">{totalPhotos.toLocaleString()}</span>
-          <span class="stat-label">Total Items</span>
+          <span class="stat-label">{$t('home.stats.items')}</span>
         </div>
       </div>
     {/if}
@@ -272,7 +290,7 @@
     <!-- Projects Content -->
     <div class="home-content">
       {#if filteredProjects.length > 0}
-        <div class="content-section-title">Recent Workspaces</div>
+        <div class="content-section-title">{$t('home.recent')}</div>
         <div class="projects-grid">
           {#each filteredProjects as project, idx (project.id)}
             <div
@@ -336,7 +354,7 @@
         </div>
       {:else if $projects.length > 0 && searchQuery}
         <div class="empty-search">
-          <p>No projects matching "<strong>{searchQuery}</strong>"</p>
+          <p>{$t('home.no_match')} "<strong>{searchQuery}</strong>"</p>
         </div>
       {:else}
         <!-- Empty state / Onboarding -->
@@ -348,10 +366,9 @@
               <polyline points="21 15 16 10 5 21"/>
             </svg>
           </div>
-          <h3 class="onboarding-title">Start Your First Workspace</h3>
+          <h3 class="onboarding-title">{$t('home.empty.title')}</h3>
           <p class="onboarding-desc">
-            Select a folder containing your photos or videos to begin culling.
-            Keepix will scan your files, generate thumbnails, and set up your workspace automatically.
+            {$t('home.empty.desc')}
           </p>
           <button class="btn btn-primary btn-lg onboarding-cta" onclick={handleOpenFolder}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -359,25 +376,25 @@
               <line x1="12" y1="11" x2="12" y2="17"/>
               <line x1="9" y1="14" x2="15" y2="14"/>
             </svg>
-            Open Folder
+            {$t('btn.open_folder')}
           </button>
 
           <div class="onboarding-features">
             <div class="feature-item">
               <span class="feature-icon">⚡</span>
-              <span>Lightning-fast culling with keyboard shortcuts</span>
+              <span>{$t('home.feat.fast')}</span>
             </div>
             <div class="feature-item">
               <span class="feature-icon">🔍</span>
-              <span>Focus peaking & exposure diagnostics</span>
+              <span>{$t('home.feat.focus')}</span>
             </div>
             <div class="feature-item">
               <span class="feature-icon">📊</span>
-              <span>Real-time RGB histogram</span>
+              <span>{$t('home.feat.hist')}</span>
             </div>
             <div class="feature-item">
               <span class="feature-icon">📸</span>
-              <span>Smart burst grouping & compare mode</span>
+              <span>{$t('home.feat.burst')}</span>
             </div>
           </div>
         </div>
@@ -385,6 +402,9 @@
     </div>
   </div>
 </div>
+
+<SettingsModal show={showSettings} onClose={() => showSettings = false} />
+<AboutModal show={showAbout} onClose={() => showAbout = false} />
 
 <style>
   .home {
