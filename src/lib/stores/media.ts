@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { writable, derived, get } from 'svelte/store';
-import type { MediaItem, ViewMode, SortBy, SortOrder, Category, CategoryStats } from '$lib/types';
+import type { MediaItem, ViewMode, SortBy, SortOrder, Category, CategoryStats, ExifFilters, DiagnosticsMode, BurstGroup } from '$lib/types';
 import * as bridge from '$lib/services/tauri-bridge';
 
 // ---- Core state ----
@@ -20,14 +20,28 @@ export const isLoading = writable<boolean>(false);
 export const categoryFilter = writable<number | null>(null);
 export const starFilter = writable<number | null>(null);
 export const uncategorizedOnly = writable<boolean>(false);
+export const cameraModelFilter = writable<string | null>(null);
+export const lensModelFilter = writable<string | null>(null);
+export const colorLabelFilter = writable<string | null>(null);
+
+// ---- Diagnostics, Histogram, Auto-Advance, and Burst Grouping ----
+export const diagnosticsMode = writable<DiagnosticsMode>('none');
+export const showHistogram = writable<boolean>(false);
+export const autoAdvance = writable<boolean>(true);
+export const groupBursts = writable<boolean>(false);
 
 // ---- Sort ----
 export const sortBy = writable<SortBy>('name');
 export const sortOrder = writable<SortOrder>('asc');
 
+// ---- Compare & Zoom ----
+export const compareMode = writable<'single' | '2-up' | '4-up'>('single');
+export const syncZoom = writable<boolean>(true);
+
 // ---- Categories ----
 export const categories = writable<Category[]>([]);
 export const categoryStats = writable<CategoryStats[]>([]);
+export const exifFilters = writable<ExifFilters>({ camera_models: [], lens_models: [], color_labels: [] });
 
 // ---- Derived ----
 export const currentItem = derived(
@@ -38,6 +52,75 @@ export const currentItem = derived(
 export const hasItems = derived(mediaItems, ($items) => $items.length > 0);
 
 export const selectedCount = derived(selectedIds, ($ids) => $ids.size);
+
+export const displayItems = derived(
+  [mediaItems, groupBursts],
+  ([$items, $group]) => {
+    if (!$group) return $items;
+    
+    // Group consecutive items by date_taken difference <= 3 seconds
+    const groups: (MediaItem | BurstGroup)[] = [];
+    let currentGroup: BurstGroup | null = null;
+    
+    for (let i = 0; i < $items.length; i++) {
+      const item = $items[i];
+      if (item.file_type !== 'photo' || !item.date_taken) {
+        if (currentGroup) {
+          groups.push(currentGroup);
+          currentGroup = null;
+        }
+        groups.push(item);
+        continue;
+      }
+      
+      // EXIF date format is YYYY:MM:DD HH:MM:SS, let's normalize it to YYYY-MM-DD HH:MM:SS
+      const normalizedDate = item.date_taken.replace(/:/g, (match, offset) => {
+        // Only replace the first two colons which are part of YYYY:MM:DD
+        return offset < 10 ? '-' : match;
+      });
+      const itemTime = Date.parse(normalizedDate);
+      if (isNaN(itemTime)) {
+        if (currentGroup) {
+          groups.push(currentGroup);
+          currentGroup = null;
+        }
+        groups.push(item);
+        continue;
+      }
+      
+      if (currentGroup) {
+        const leadNormalizedDate = currentGroup.leadItem.date_taken!.replace(/:/g, (match, offset) => {
+          return offset < 10 ? '-' : match;
+        });
+        const leadTime = Date.parse(leadNormalizedDate);
+        const diffSeconds = Math.abs(itemTime - leadTime) / 1000;
+        
+        if (diffSeconds <= 3) {
+          currentGroup.items.push(item);
+        } else {
+          groups.push(currentGroup);
+          currentGroup = {
+            id: `burst-${item.id}`,
+            leadItem: item,
+            items: [item]
+          };
+        }
+      } else {
+        currentGroup = {
+          id: `burst-${item.id}`,
+          leadItem: item,
+          items: [item]
+        };
+      }
+    }
+    
+    if (currentGroup) {
+      groups.push(currentGroup);
+    }
+    
+    return groups;
+  }
+);
 
 // ============================================================================
 // Actions
@@ -52,9 +135,15 @@ export async function loadMediaItems(projectId: string) {
     const catFilter = get(categoryFilter);
     const starF = get(starFilter);
     const uncatOnly = get(uncategorizedOnly);
+    const cameraM = get(cameraModelFilter);
+    const lensM = get(lensModelFilter);
+    const colorL = get(colorLabelFilter);
+    const sortField = get(sortBy);
+    const sortDir = get(sortOrder);
 
     const result = await bridge.getMediaItems(
-      projectId, page, size, catFilter, starF, uncatOnly
+      projectId, page, size, catFilter, starF, uncatOnly,
+      cameraM, lensM, colorL, sortField, sortDir
     );
     
     mediaItems.set(result.items);
@@ -63,6 +152,16 @@ export async function loadMediaItems(projectId: string) {
     console.error('Failed to load media items:', err);
   } finally {
     isLoading.set(false);
+  }
+}
+
+/** Load unique EXIF filters for a project */
+export async function loadExifFilters(projectId: string) {
+  try {
+    const filters = await bridge.getExifFilters(projectId);
+    exifFilters.set(filters);
+  } catch (err) {
+    console.error('Failed to load EXIF filters:', err);
   }
 }
 
@@ -124,6 +223,21 @@ export async function setStarRatingForItem(mediaId: string, rating: number) {
   }
 }
 
+/** Set color label for an item */
+export async function setColorLabelForItem(mediaId: string, color: string | null) {
+  try {
+    await bridge.setColorLabel(mediaId, color);
+
+    mediaItems.update(items =>
+      items.map(item =>
+        item.id === mediaId ? { ...item, color_label: color } : item
+      )
+    );
+  } catch (err) {
+    console.error('Failed to set color label:', err);
+  }
+}
+
 /** Navigate to next item */
 export function navigateNext() {
   const items = get(mediaItems);
@@ -169,6 +283,9 @@ export function clearFilters() {
   categoryFilter.set(null);
   starFilter.set(null);
   uncategorizedOnly.set(false);
+  cameraModelFilter.set(null);
+  lensModelFilter.set(null);
+  colorLabelFilter.set(null);
   currentPage.set(0);
   selectedIndex.set(0);
 }
@@ -183,5 +300,14 @@ export function resetMediaStore() {
   categoryFilter.set(null);
   starFilter.set(null);
   uncategorizedOnly.set(false);
+  cameraModelFilter.set(null);
+  lensModelFilter.set(null);
+  colorLabelFilter.set(null);
+  diagnosticsMode.set('none');
+  showHistogram.set(false);
+  autoAdvance.set(true);
+  groupBursts.set(false);
+  exifFilters.set({ camera_models: [], lens_models: [], color_labels: [] });
+  compareMode.set('single');
   categoryStats.set([]);
 }

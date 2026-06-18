@@ -43,6 +43,7 @@ pub fn run() {
             commands::scan_folder,
             // Media commands
             commands::get_media_items,
+            commands::get_exif_filters,
             commands::get_single_media,
             commands::set_category,
             commands::set_star_rating,
@@ -55,6 +56,7 @@ pub fn run() {
             commands::get_category_stats,
             // Batch operations
             commands::batch_set_category,
+            commands::export_media_items,
             // Utilities
             commands::convert_file_path,
         ])

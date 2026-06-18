@@ -5,16 +5,16 @@
   import {
     mediaItems, totalItems, selectedIndex, viewMode, isLoading,
     currentItem, categoryFilter, uncategorizedOnly, categoryStats,
-    loadMediaItems, loadCategoryStats, loadCategories,
-    setCategoryForItem, setStarRatingForItem,
+    loadMediaItems, loadCategoryStats, loadCategories, loadExifFilters,
+    setCategoryForItem, setStarRatingForItem, setColorLabelForItem,
     navigateNext, navigatePrev, navigateTo, toggleViewMode,
     setFilterCategory, setFilterUncategorized, clearFilters,
-    categories,
+    categories, compareMode, syncZoom, diagnosticsMode, showHistogram, autoAdvance, displayItems,
   } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
   import { toAssetUrl } from '$lib/services/tauri-bridge';
   import * as bridge from '$lib/services/tauri-bridge';
-  import { getCategoryName, getCategoryColor, formatFileSize, type ExifData } from '$lib/types';
+  import { getCategoryName, getCategoryColor, formatFileSize, type ExifData, type MediaItem } from '$lib/types';
   import GridView from '$lib/components/GridView.svelte';
   import PreviewView from '$lib/components/PreviewView.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
@@ -22,9 +22,11 @@
   import MetadataPanel from '$lib/components/MetadataPanel.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
   import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
+  import ExportModal from '$lib/components/ExportModal.svelte';
 
   let showMetadata = $state(false);
   let showShortcuts = $state(false);
+  let showExport = $state(false);
   let exifData = $state<ExifData | null>(null);
   let thumbnailSize = $state(200);
   let categoryFlash = $state<number | null>(null);
@@ -50,16 +52,57 @@
     }
   });
 
+  let scanUnlisten: (() => void) | null = null;
+
   onMount(async () => {
     if (!$currentProject) {
       goto('/');
       return;
     }
 
+    // Load EXIF filters
+    await loadExifFilters($currentProject.id);
+
     // If items aren't loaded yet, load them
     if ($mediaItems.length === 0) {
       await loadMediaItems($currentProject.id);
       await loadCategoryStats($currentProject.id);
+    }
+
+    // Set up real-time listener for scan progress to load thumbnails dynamically!
+    let lastReloadTime = 0;
+    let reloadTimeout: any = null;
+
+    scanUnlisten = await bridge.onScanProgress(async (progress) => {
+      if (progress.phase === 'thumbnails') {
+        const now = Date.now();
+        if (now - lastReloadTime > 1500) {
+          lastReloadTime = now;
+          await loadMediaItems($currentProject!.id);
+          await loadCategoryStats($currentProject!.id);
+        } else {
+          clearTimeout(reloadTimeout);
+          reloadTimeout = setTimeout(async () => {
+            if ($currentProject) {
+              await loadMediaItems($currentProject.id);
+              await loadCategoryStats($currentProject.id);
+            }
+          }, 1500);
+        }
+      } else if (progress.phase === 'complete') {
+        clearTimeout(reloadTimeout);
+        if ($currentProject) {
+          await loadMediaItems($currentProject.id);
+          await loadCategoryStats($currentProject.id);
+          await loadExifFilters($currentProject.id);
+        }
+      }
+    });
+  });
+
+  onDestroy(() => {
+    if (scanUnlisten) {
+      scanUnlisten();
     }
   });
 
@@ -90,8 +133,9 @@
         flashCategory(catId);
         const name = getCategoryName(catId);
         toast.success(`${name}`, 1500);
-        // Auto-advance to next image
-        navigateNext();
+        if ($autoAdvance) {
+          navigateNext();
+        }
         break;
       }
 
@@ -113,11 +157,27 @@
         toggleViewMode();
         break;
 
-      // Undo
+      case 'c':
+      case 'C':
+        if ($viewMode === 'preview') {
+          compareMode.update(m => {
+            if (m === 'single') return '2-up';
+            if (m === '2-up') return '4-up';
+            return 'single';
+          });
+          toast.info(`Compare Mode: ${$compareMode.toUpperCase()}`);
+        }
+        break;
+
+      // Undo & Sync Zoom Toggle
       case 'z':
+      case 'Z':
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
           handleUndo();
+        } else if ($viewMode === 'preview' && $compareMode !== 'single') {
+          syncZoom.update(sz => !sz);
+          toast.info($syncZoom ? 'Zoom linked' : 'Zoom unlinked');
         }
         break;
 
@@ -127,16 +187,69 @@
           setCategoryForItem(item.id, projectId, 1);
           flashCategory(1);
           toast.success('Buang', 1500);
-          navigateNext();
+          if ($autoAdvance) {
+            navigateNext();
+          }
         }
         break;
 
-      // Star ratings (0-5)
-      case '0': case '5': case '6': case '7': case '8': case '9':
-        // 5-9 could be star ratings, but we only use 0-5
-        if (item && parseInt(e.key) <= 5) {
-          setStarRatingForItem(item.id, parseInt(e.key));
+      // Star ratings (0 or 5)
+      case '0':
+      case '5':
+        if (item) {
+          const rating = parseInt(e.key);
+          setStarRatingForItem(item.id, rating);
+          toast.success(`Rating: ${rating} Stars`, 1500);
+          if ($autoAdvance) {
+            navigateNext();
+          }
         }
+        break;
+
+      // Color labels (6-9)
+      case '6':
+      case '7':
+      case '8':
+      case '9': {
+        if (!item) return;
+        let color: string | null = null;
+        let labelName = 'None';
+        if (e.key === '6') { color = 'red'; labelName = 'Red'; }
+        else if (e.key === '7') { color = 'orange'; labelName = 'Orange'; }
+        else if (e.key === '8') { color = 'yellow'; labelName = 'Yellow'; }
+        else if (e.key === '9') { color = 'green'; labelName = 'Green'; }
+
+        setColorLabelForItem(item.id, color);
+        toast.success(`Label: ${labelName}`, 1500);
+        if ($autoAdvance) {
+          navigateNext();
+        }
+        break;
+      }
+
+      // Toggle histogram
+      case 'h':
+      case 'H':
+        showHistogram.update(h => !h);
+        toast.info($showHistogram ? 'Histogram visible' : 'Histogram hidden');
+        break;
+
+      // Cycle diagnostics overlay
+      case 'o':
+      case 'O':
+        diagnosticsMode.update(mode => {
+          if (mode === 'none') return 'peaking';
+          if (mode === 'peaking') return 'zebra';
+          return 'none';
+        });
+        toast.info(`Diagnostics: ${$diagnosticsMode.toUpperCase()}`);
+        break;
+
+      // Toggle auto-advance
+      case 'a':
+      case 'A':
+        autoAdvance.update(a => !a);
+        toast.info($autoAdvance ? 'Auto-Advance ON' : 'Auto-Advance OFF');
         break;
 
       // Show shortcuts
@@ -185,8 +298,18 @@
     navigateTo(index);
   }
 
-  function handleGridDoubleClick(index: number) {
+  function handleGridDoubleClick(index: number, burstItems?: MediaItem[]) {
     navigateTo(index);
+    if (burstItems && burstItems.length > 1) {
+      if (burstItems.length === 2) {
+        compareMode.set('2-up');
+      } else {
+        compareMode.set('4-up');
+      }
+      toast.success(`Comparing ${burstItems.length} burst photos`);
+    } else {
+      compareMode.set('single');
+    }
     viewMode.set('preview');
   }
 </script>
@@ -195,7 +318,7 @@
 
 <div class="cull-workspace">
   <!-- Sidebar -->
-  <Sidebar />
+  <Sidebar onOpenExport={() => showExport = true} />
 
   <!-- Main content area -->
   <div class="main-area">
@@ -227,7 +350,8 @@
       <div class="media-container">
         {#if $viewMode === 'grid'}
           <GridView
-            items={$mediaItems}
+            items={$displayItems}
+            originalItems={$mediaItems}
             selectedIndex={$selectedIndex}
             {thumbnailSize}
             onSelect={handleGridSelect}
@@ -296,6 +420,11 @@
 <!-- Keyboard shortcuts modal -->
 {#if showShortcuts}
   <KeyboardShortcutsModal onClose={() => showShortcuts = false} />
+{/if}
+
+<!-- Export modal -->
+{#if showExport}
+  <ExportModal onClose={() => showExport = false} />
 {/if}
 
 <style>

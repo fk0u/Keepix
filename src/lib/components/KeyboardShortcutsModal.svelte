@@ -98,10 +98,38 @@
       </section>
 
       <section class="shortcut-section">
-        <h3 class="section-label">Ratings</h3>
+        <h3 class="section-label">Ratings & Colors</h3>
         <div class="shortcut-row">
-          <kbd>0</kbd> – <kbd>5</kbd>
+          <kbd>0</kbd> or <kbd>5</kbd>
           <span>Star Rating</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>6</kbd> – <kbd>9</kbd>
+          <span>Color Label (Red/Orange/Yellow/Green)</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>A</kbd>
+          <span>Toggle Auto-Advance</span>
+        </div>
+      </section>
+
+      <section class="shortcut-section">
+        <h3 class="section-label">Compare & Diagnostics</h3>
+        <div class="shortcut-row">
+          <kbd>C</kbd>
+          <span>Cycle Compare Modes</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>Z</kbd>
+          <span>Toggle Sync Zoom</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>H</kbd>
+          <span>Toggle Live Histogram</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>O</kbd>
+          <span>Cycle Overlays (Peaking/Zebra)</span>
         </div>
       </section>
     </div>

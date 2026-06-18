@@ -3,6 +3,10 @@
   import { toAssetUrl } from '$lib/services/tauri-bridge';
   import { getCategoryColor, getCategoryName } from '$lib/types';
   import CategoryBadge from './CategoryBadge.svelte';
+  import VideoPlayer from './VideoPlayer.svelte';
+  import { compareMode, syncZoom, diagnosticsMode, showHistogram } from '$lib/stores/media';
+  import DiagnosticsCanvas from './DiagnosticsCanvas.svelte';
+  import Histogram from './Histogram.svelte';
 
   let {
     item,
@@ -16,80 +20,125 @@
     onNavigate: (index: number) => void;
   } = $props();
 
-  let isZoomed = $state(false);
-  let zoomPos = $state({ x: 50, y: 50 });
+  let sharedZoomed = $state(false);
+  let sharedZoomPos = $state({ x: 50, y: 50 });
+  let zoomedPanelId = $state<string | null>(null);
+
+  // Reset zoom when items or selectedIndex changes
+  $effect(() => {
+    const _mode = $compareMode;
+    const _idx = selectedIndex;
+    sharedZoomed = false;
+    zoomedPanelId = null;
+  });
+
+  // Calculate items being compared dynamically based on compareMode
+  let activeItems = $derived.by(() => {
+    if (!item) return [];
+    if ($compareMode === '2-up') {
+      return [
+        items[selectedIndex] ?? null,
+        items[selectedIndex + 1] ?? null,
+      ].filter(Boolean) as MediaItem[];
+    }
+    if ($compareMode === '4-up') {
+      return [
+        items[selectedIndex] ?? null,
+        items[selectedIndex + 1] ?? null,
+        items[selectedIndex + 2] ?? null,
+        items[selectedIndex + 3] ?? null,
+      ].filter(Boolean) as MediaItem[];
+    }
+    return [item];
+  });
 
   function handleMouseMove(e: MouseEvent) {
-    if (!isZoomed) return;
+    if (!sharedZoomed) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    zoomPos = {
+    sharedZoomPos = {
       x: ((e.clientX - rect.left) / rect.width) * 100,
       y: ((e.clientY - rect.top) / rect.height) * 100,
     };
   }
 
-  function toggleZoom() {
-    isZoomed = !isZoomed;
+  function handlePanelClick(e: MouseEvent, itemId: string) {
+    e.stopPropagation();
+    if (sharedZoomed) {
+      sharedZoomed = false;
+      zoomedPanelId = null;
+    } else {
+      sharedZoomed = true;
+      zoomedPanelId = itemId;
+    }
   }
 </script>
 
 <div class="preview-view">
-  <!-- Main image -->
-  <div
-    class="preview-main"
-    class:zoomed={isZoomed}
-    onclick={toggleZoom}
-    onmousemove={handleMouseMove}
-    role="img"
-    tabindex="-1"
-  >
-    {#if item}
-      {#if item.file_type === 'photo'}
-        <img
-          src={toAssetUrl(item.preview_path || item.file_path)}
-          alt={item.file_name}
-          class="preview-img"
-          style={isZoomed ? `transform-origin: ${zoomPos.x}% ${zoomPos.y}%; transform: scale(2.5);` : ''}
-          draggable="false"
-        />
-      {:else}
-        <div class="video-preview">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor" opacity="0.3">
-            <polygon points="5,3 19,12 5,21"/>
-          </svg>
-          <p>Video preview</p>
-          <p class="text-sm">{item.file_name}</p>
-        </div>
-      {/if}
-
-      <!-- Category indicator -->
-      {#if item.category_id}
-        <div class="preview-category">
-          <CategoryBadge categoryId={item.category_id} />
-        </div>
-      {/if}
-
-      <!-- Navigation arrows -->
-      <button
-        class="nav-arrow nav-prev"
-        onclick|stopPropagation={() => onNavigate(selectedIndex - 1)}
-        disabled={selectedIndex <= 0}
+  <!-- Panels Grid -->
+  <div class="panels-grid compare-{$compareMode}">
+    {#each activeItems as activeItem, idx (activeItem.id)}
+      <div
+        class="preview-panel"
+        class:active-panel={idx === 0}
+        class:zoomed={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)}
+        onclick={(e) => activeItem.file_type === 'photo' && handlePanelClick(e, activeItem.id)}
+        onmousemove={handleMouseMove}
+        role="presentation"
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="15 18 9 12 15 6"/>
-        </svg>
-      </button>
-      <button
-        class="nav-arrow nav-next"
-        onclick|stopPropagation={() => onNavigate(selectedIndex + 1)}
-        disabled={selectedIndex >= items.length - 1}
-      >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="9 18 15 12 9 6"/>
-        </svg>
-      </button>
-    {/if}
+        {#if activeItem.file_type === 'photo'}
+          {#if $diagnosticsMode !== 'none'}
+            <DiagnosticsCanvas
+              src={toAssetUrl(activeItem.preview_path || activeItem.file_path)}
+              mode={$diagnosticsMode}
+              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
+                : ''}
+            />
+          {:else}
+            <img
+              src={toAssetUrl(activeItem.preview_path || activeItem.file_path)}
+              alt={activeItem.file_name}
+              class="preview-img"
+              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
+                : ''}
+              draggable="false"
+            />
+          {/if}
+        {:else}
+          <VideoPlayer item={activeItem} />
+        {/if}
+
+        <!-- Panel details overlay -->
+        <div class="panel-overlay">
+          <span class="panel-filename">{activeItem.file_name}</span>
+          {#if activeItem.category_id}
+            <CategoryBadge categoryId={activeItem.category_id} compact />
+          {/if}
+        </div>
+      </div>
+    {/each}
   </div>
+
+  <!-- Navigation arrows -->
+  <button
+    class="nav-arrow nav-prev"
+    onclick={(e) => { e.stopPropagation(); onNavigate(selectedIndex - 1); }}
+    disabled={selectedIndex <= 0}
+  >
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="15 18 9 12 15 6"/>
+    </svg>
+  </button>
+  <button
+    class="nav-arrow nav-next"
+    onclick={(e) => { e.stopPropagation(); onNavigate(selectedIndex + 1); }}
+    disabled={selectedIndex >= items.length - 1}
+  >
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="9 18 15 12 9 6"/>
+    </svg>
+  </button>
 
   <!-- Filmstrip -->
   <div class="filmstrip">
@@ -114,7 +163,15 @@
       </button>
     {/each}
   </div>
+
+  <!-- Histogram Overlay -->
+  {#if $showHistogram && item && item.file_type === 'photo'}
+    <div class="histogram-overlay-container">
+      <Histogram src={toAssetUrl(item.preview_path || item.file_path)} />
+    </div>
+  {/if}
 </div>
+
 
 <style>
   .preview-view {
@@ -122,21 +179,53 @@
     flex-direction: column;
     height: 100%;
     width: 100%;
+    position: relative;
+    background: var(--bg-primary);
   }
 
-  .preview-main {
+  .panels-grid {
     flex: 1;
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    background: var(--bg-primary);
+    overflow: hidden;
+  }
+
+  .panels-grid.compare-single {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+
+  .panels-grid.compare-2-up {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr;
+  }
+
+  .panels-grid.compare-4-up {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+  }
+
+  .preview-panel {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
     overflow: hidden;
-    position: relative;
-    background: var(--bg-primary);
+    background: #000;
+    border-radius: var(--radius-lg);
+    border: 2px solid transparent;
+    transition: border-color var(--transition-base);
     cursor: zoom-in;
   }
 
-  .preview-main.zoomed {
+  .preview-panel.zoomed {
     cursor: zoom-out;
+  }
+
+  .preview-panel.active-panel {
+    border-color: var(--border-strong);
   }
 
   .preview-img {
@@ -147,30 +236,38 @@
     user-select: none;
   }
 
-  .video-preview {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    color: var(--text-tertiary);
-  }
-
-  .text-sm {
-    font-size: var(--text-sm);
-    opacity: 0.5;
-  }
-
-  .preview-category {
+  .panel-overlay {
     position: absolute;
-    top: var(--space-4);
-    right: var(--space-4);
+    bottom: var(--space-3);
+    left: var(--space-3);
+    right: var(--space-3);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(10px);
+    padding: 6px var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    pointer-events: none;
     z-index: 5;
+  }
+
+  .panel-filename {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 80%;
   }
 
   /* Navigation arrows */
   .nav-arrow {
     position: absolute;
-    top: 50%;
+    top: calc(50% - 40px);
     transform: translateY(-50%);
     z-index: 5;
     background: rgba(0, 0, 0, 0.4);
@@ -187,7 +284,7 @@
     transition: opacity var(--transition-fast);
   }
 
-  .preview-main:hover .nav-arrow {
+  .preview-view:hover .nav-arrow {
     opacity: 0.7;
   }
 
@@ -260,5 +357,13 @@
     width: 100%;
     height: 100%;
     background: var(--bg-tertiary);
+  }
+
+  .histogram-overlay-container {
+    position: absolute;
+    top: var(--space-4);
+    right: var(--space-4);
+    z-index: 100;
+    pointer-events: none;
   }
 </style>

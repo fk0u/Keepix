@@ -15,6 +15,8 @@ import type {
   ScanResult,
   CategoryStats,
   PaginatedMedia,
+  ExifFilters,
+  ExportProgress,
 } from '$lib/types';
 
 // ============================================================================
@@ -71,6 +73,11 @@ export async function getMediaItems(
   categoryId: number | null = null,
   starRating: number | null = null,
   uncategorizedOnly: boolean = false,
+  cameraModel: string | null = null,
+  lensModel: string | null = null,
+  colorLabel: string | null = null,
+  sortBy: string = 'name',
+  sortOrder: string = 'asc',
 ): Promise<PaginatedMedia> {
   return invoke<PaginatedMedia>('get_media_items', {
     projectId,
@@ -79,7 +86,17 @@ export async function getMediaItems(
     categoryId,
     starRating,
     uncategorizedOnly,
+    cameraModel,
+    lensModel,
+    colorLabel,
+    sortBy,
+    sortOrder,
   });
+}
+
+/** Get unique EXIF filter options for a project */
+export async function getExifFilters(projectId: string): Promise<ExifFilters> {
+  return invoke<ExifFilters>('get_exif_filters', { projectId });
 }
 
 /** Get a single media item */
@@ -168,6 +185,39 @@ export async function pickFolder(): Promise<string | null> {
 /** Convert a local file path to an asset URL for display in the webview */
 export function toAssetUrl(filePath: string): string {
   if (!filePath) return '';
-  // Use Tauri's convertFileSrc to securely load local files in the webview
-  return convertFileSrc(filePath);
+  // Normalize Windows backslashes to forward slashes for URL compatibility on Windows
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  return convertFileSrc(normalizedPath);
+}
+
+// ============================================================================
+// Export commands
+// ============================================================================
+
+/** Trigger async export of culled items */
+export async function exportMediaItems(
+  projectId: string,
+  targetDir: string,
+  categories: number[],
+  exportUncategorized: boolean,
+  actionType: 'copy' | 'move' | 'list',
+  conflictBehavior: 'overwrite' | 'skip' | 'rename'
+): Promise<number> {
+  return invoke<number>('export_media_items', {
+    projectId,
+    targetDir,
+    categories,
+    exportUncategorized,
+    actionType,
+    conflictBehavior,
+  });
+}
+
+/** Listen for export progress events */
+export async function onExportProgress(
+  callback: (progress: ExportProgress) => void
+): Promise<UnlistenFn> {
+  return listen<ExportProgress>('export-progress', (event) => {
+    callback(event.payload);
+  });
 }

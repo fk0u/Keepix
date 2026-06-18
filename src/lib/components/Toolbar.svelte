@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { viewMode, toggleViewMode } from '$lib/stores/media';
+  import { viewMode, toggleViewMode, sortBy, sortOrder, compareMode, syncZoom, loadMediaItems, diagnosticsMode, showHistogram, autoAdvance } from '$lib/stores/media';
+  import { currentProject } from '$lib/stores/project';
 
   let {
     thumbnailSize = $bindable(200),
@@ -12,6 +13,19 @@
     onShowShortcuts: () => void;
     onGoHome: () => void;
   } = $props();
+
+  async function handleSortChange() {
+    if ($currentProject) {
+      await loadMediaItems($currentProject.id);
+    }
+  }
+
+  async function toggleSortOrder() {
+    sortOrder.update(o => o === 'asc' ? 'desc' : 'asc');
+    if ($currentProject) {
+      await loadMediaItems($currentProject.id);
+    }
+  }
 </script>
 
 <div class="toolbar">
@@ -44,6 +58,82 @@
       </button>
     </div>
 
+    <!-- Sort controls -->
+    <div class="toolbar-divider"></div>
+    <span class="toolbar-label">Sort:</span>
+    <select
+      class="toolbar-select"
+      value={$sortBy}
+      onchange={(e) => { sortBy.set((e.currentTarget as HTMLSelectElement).value as any); handleSortChange(); }}
+    >
+      <option value="name">Name</option>
+      <option value="date">Date Taken</option>
+      <option value="size">File Size</option>
+      <option value="rating">Star Rating</option>
+      <option value="type">File Type</option>
+    </select>
+
+    <button
+      class="btn btn-icon btn-ghost sort-order-btn"
+      onclick={toggleSortOrder}
+      data-tooltip={$sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+    >
+      {#if $sortOrder === 'asc'}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <polyline points="19 12 12 5 5 12"/>
+        </svg>
+      {:else}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <polyline points="19 12 12 19 5 12"/>
+        </svg>
+      {/if}
+    </button>
+
+    <!-- Compare Mode options (Preview mode only) -->
+    {#if $viewMode === 'preview'}
+      <div class="toolbar-divider"></div>
+      <span class="toolbar-label">Compare:</span>
+      <select
+        class="toolbar-select"
+        value={$compareMode}
+        onchange={(e) => compareMode.set((e.currentTarget as HTMLSelectElement).value as any)}
+      >
+        <option value="single">Single (1-up)</option>
+        <option value="2-up">2-Up Split</option>
+        <option value="4-up">4-Up Split</option>
+      </select>
+
+      {#if $compareMode !== 'single'}
+        <button
+          class="btn btn-icon btn-ghost compare-sync-btn"
+          class:active={$syncZoom}
+          onclick={() => syncZoom.update(z => !z)}
+          data-tooltip="Link Zoom & Pan"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 3h6v6"/>
+            <path d="M9 21H3v-6"/>
+            <line x1="21" y1="3" x2="14" y2="10"/>
+            <line x1="3" y1="21" x2="10" y2="14"/>
+          </svg>
+        </button>
+      {/if}
+
+      <div class="toolbar-divider"></div>
+      <span class="toolbar-label">Diagnostics:</span>
+      <select
+        class="toolbar-select"
+        value={$diagnosticsMode}
+        onchange={(e) => diagnosticsMode.set((e.currentTarget as HTMLSelectElement).value as any)}
+      >
+        <option value="none">Normal View</option>
+        <option value="peaking">Focus Peaking</option>
+        <option value="zebra">Exposure Alerts</option>
+      </select>
+    {/if}
+
     <!-- Thumbnail size slider (grid mode only) -->
     {#if $viewMode === 'grid'}
       <div class="thumb-slider">
@@ -72,6 +162,34 @@
   </div>
 
   <div class="toolbar-right">
+    <!-- Toggle Live Histogram -->
+    {#if $viewMode === 'preview'}
+      <button
+        class="btn btn-icon btn-ghost"
+        class:active={$showHistogram}
+        onclick={() => showHistogram.update(h => !h)}
+        data-tooltip="Toggle Histogram (H)"
+        aria-label="Toggle Histogram"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 20V10M12 20V4M6 20v-6"/>
+        </svg>
+      </button>
+    {/if}
+
+    <!-- Toggle Auto-Advance -->
+    <button
+      class="btn btn-icon btn-ghost"
+      class:active={$autoAdvance}
+      onclick={() => autoAdvance.update(a => !a)}
+      data-tooltip="Auto-Advance (A)"
+      aria-label="Toggle Auto-Advance"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </svg>
+    </button>
+
     <!-- Toggle metadata panel -->
     <button
       class="btn btn-icon btn-ghost"
@@ -177,5 +295,50 @@
 
   .slider::-webkit-slider-thumb:hover {
     transform: scale(1.2);
+  }
+
+  .toolbar-select {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--text-xs);
+    outline: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    height: 28px;
+  }
+
+  .toolbar-select:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border-subtle);
+    margin: 0 var(--space-1);
+  }
+
+  .toolbar-label {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  .sort-order-btn, .compare-sync-btn {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px;
+    border-radius: var(--radius-md);
+  }
+
+  .compare-sync-btn.active {
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 </style>

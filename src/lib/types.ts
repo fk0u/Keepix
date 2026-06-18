@@ -109,6 +109,17 @@ export type ViewMode = 'grid' | 'preview';
 export type SortBy = 'name' | 'date' | 'size' | 'rating' | 'type';
 export type SortOrder = 'asc' | 'desc';
 
+/** Visual diagnostics modes */
+export type DiagnosticsMode = 'none' | 'peaking' | 'zebra';
+
+/** Represents a group of similar/burst photos */
+export interface BurstGroup {
+  id: string;
+  leadItem: MediaItem;
+  items: MediaItem[];
+}
+
+
 /** Color labels available */
 export const COLOR_LABELS = [
   { value: 'red', label: 'Red', hex: '#ef4444' },
@@ -157,4 +168,20 @@ export function getCategoryName(categoryId: number | null): string {
 export function getCategoryColor(categoryId: number | null): string {
   const cat = DEFAULT_CATEGORIES.find(c => c.id === categoryId);
   return cat?.color ?? 'transparent';
+}
+
+/** Unique EXIF filters returned by backend */
+export interface ExifFilters {
+  camera_models: string[];
+  lens_models: string[];
+  color_labels: string[];
+}
+
+/** Export progress event from backend */
+export interface ExportProgress {
+  phase: 'exporting' | 'complete' | 'error';
+  current: number;
+  total: number;
+  current_file: string;
+  status: string;
 }

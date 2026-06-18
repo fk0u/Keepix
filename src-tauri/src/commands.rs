@@ -26,6 +26,16 @@ pub struct ScanProgressEvent {
     pub current_file: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ExportProgressEvent {
+    pub phase: String,
+    pub current: usize,
+    pub total: usize,
+    pub current_file: String,
+    pub status: String,
+}
+
+
 #[derive(Debug, Serialize)]
 pub struct PaginatedMedia {
     pub items: Vec<MediaItem>,
@@ -249,6 +259,11 @@ pub fn get_media_items(
     category_id: Option<i32>,
     star_rating: Option<i32>,
     uncategorized_only: bool,
+    camera_model: Option<String>,
+    lens_model: Option<String>,
+    color_label: Option<String>,
+    sort_by: String,
+    sort_order: String,
 ) -> Result<PaginatedMedia, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let offset = page * page_size;
@@ -259,13 +274,27 @@ pub fn get_media_items(
         category_id,
         star_rating,
         uncategorized_only,
+        camera_model.as_deref(),
+        lens_model.as_deref(),
+        color_label.as_deref(),
+        &sort_by,
+        &sort_order,
         offset,
         page_size,
     )
     .map_err(|e| e.to_string())?;
 
-    let total = db::get_media_count(&conn, &project_id, category_id, uncategorized_only)
-        .map_err(|e| e.to_string())?;
+    let total = db::get_media_count(
+        &conn,
+        &project_id,
+        category_id,
+        star_rating,
+        uncategorized_only,
+        camera_model.as_deref(),
+        lens_model.as_deref(),
+        color_label.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(PaginatedMedia {
         items,
@@ -273,6 +302,15 @@ pub fn get_media_items(
         page,
         page_size,
     })
+}
+
+#[tauri::command]
+pub fn get_exif_filters(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<db::ExifFilters, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    db::get_unique_exif_metadata(&conn, &project_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -453,6 +491,226 @@ pub fn batch_set_category(
 
     Ok(count)
 }
+
+#[tauri::command]
+pub async fn export_media_items(
+    app: AppHandle,
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+    target_dir: String,
+    categories: Vec<i32>,
+    export_uncategorized: bool,
+    action_type: String, // "copy" | "move" | "list"
+    conflict_behavior: String, // "overwrite" | "skip" | "rename"
+) -> Result<usize, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    
+    let mut sql = String::from("SELECT file_path, file_name FROM media_items WHERE project_id = ?1 AND (");
+    let mut conditions = Vec::new();
+    
+    if !categories.is_empty() {
+        let placeholders: Vec<String> = (1..=categories.len()).map(|i| format!("?{}", i + 1)).collect();
+        conditions.push(format!("category_id IN ({})", placeholders.join(",")));
+    }
+    
+    if export_uncategorized {
+        conditions.push("category_id IS NULL".to_string());
+    }
+    
+    if conditions.is_empty() {
+        return Ok(0); // Nothing to export
+    }
+    
+    sql.push_str(&conditions.join(" OR "));
+    sql.push_str(")");
+    
+    let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+    let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+    params_vec.push(rusqlite::types::Value::Text(project_id.clone()));
+    for cat in &categories {
+        params_vec.push(rusqlite::types::Value::Integer(*cat as i64));
+    }
+    
+    #[derive(Clone)]
+    struct ExportItem {
+        file_path: String,
+        file_name: String,
+    }
+    
+    let items = stmt
+        .query_map(rusqlite::params_from_iter(params_vec), |row| {
+            Ok(ExportItem {
+                file_path: row.get(0)?,
+                file_name: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+        
+    let total = items.len();
+    if total == 0 {
+        return Ok(0);
+    }
+
+    // Spawn a background thread for asynchronous exporting
+    std::thread::spawn(move || {
+        let path = std::path::Path::new(&target_dir);
+        if !path.exists() {
+            std::fs::create_dir_all(path).ok();
+        }
+
+        // List mode target file (if action_type is "list")
+        let mut list_file_content = String::new();
+
+        for (idx, item) in items.iter().enumerate() {
+            let src = std::path::Path::new(&item.file_path);
+            if !src.exists() {
+                app.emit(
+                    "export-progress",
+                    ExportProgressEvent {
+                        phase: "exporting".to_string(),
+                        current: idx + 1,
+                        total,
+                        current_file: item.file_name.clone(),
+                        status: format!("Source file not found: {}", item.file_path),
+                    },
+                )
+                .ok();
+                continue;
+            }
+
+            if action_type == "list" {
+                list_file_content.push_str(&item.file_path);
+                list_file_content.push_str("\n");
+                
+                app.emit(
+                    "export-progress",
+                    ExportProgressEvent {
+                        phase: "exporting".to_string(),
+                        current: idx + 1,
+                        total,
+                        current_file: item.file_name.clone(),
+                        status: "Listing...".to_string(),
+                    },
+                )
+                .ok();
+                continue;
+            }
+
+            // Conflict resolution
+            let mut dest_name = item.file_name.clone();
+            let mut dest = path.join(&dest_name);
+
+            if dest.exists() {
+                match conflict_behavior.as_str() {
+                    "skip" => {
+                        app.emit(
+                            "export-progress",
+                            ExportProgressEvent {
+                                phase: "exporting".to_string(),
+                                current: idx + 1,
+                                total,
+                                current_file: item.file_name.clone(),
+                                status: "Skipped (already exists)".to_string(),
+                            },
+                        )
+                        .ok();
+                        continue;
+                    }
+                    "rename" => {
+                        let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+                        let ext = dest.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+                        let mut counter = 1;
+                        while dest.exists() {
+                            dest_name = if ext.is_empty() {
+                                format!("{}_{}", stem, counter)
+                            } else {
+                                format!("{}_{}.{}", stem, counter, ext)
+                            };
+                            dest = path.join(&dest_name);
+                            counter += 1;
+                        }
+                    }
+                    _ => {} // "overwrite" -> do nothing
+                }
+            }
+
+            // Perform file operation
+            let result = if action_type == "move" {
+                match std::fs::rename(src, &dest) {
+                    Ok(_) => Ok(()),
+                    Err(_) => {
+                        match std::fs::copy(src, &dest) {
+                            Ok(_) => {
+                                std::fs::remove_file(src).ok();
+                                Ok(())
+                            }
+                            Err(e) => Err(e),
+                        }
+                    }
+                }
+            } else {
+                std::fs::copy(src, &dest).map(|_| ())
+            };
+
+            let status_msg = match result {
+                Ok(_) => {
+                    if action_type == "move" {
+                        "Moved".to_string()
+                    } else {
+                        "Copied".to_string()
+                    }
+                }
+                Err(e) => format!("Failed: {}", e),
+            };
+
+            app.emit(
+                "export-progress",
+                ExportProgressEvent {
+                    phase: "exporting".to_string(),
+                    current: idx + 1,
+                    total,
+                    current_file: item.file_name.clone(),
+                    status: status_msg,
+                },
+            )
+            .ok();
+        }
+
+        // Write file list in list mode
+        if action_type == "list" {
+            let list_path = path.join("keepix_export_list.txt");
+            std::fs::write(&list_path, list_file_content).ok();
+            app.emit(
+                "export-progress",
+                ExportProgressEvent {
+                    phase: "exporting".to_string(),
+                    current: total,
+                    total,
+                    current_file: "keepix_export_list.txt".to_string(),
+                    status: format!("Saved list to {}", list_path.display()),
+                },
+            )
+            .ok();
+        }
+
+        app.emit(
+            "export-progress",
+            ExportProgressEvent {
+                phase: "complete".to_string(),
+                current: total,
+                total,
+                current_file: "Done!".to_string(),
+                status: "Export completed successfully!".to_string(),
+            },
+        )
+        .ok();
+    });
+
+    Ok(total)
+}
+
 
 // ============================================================================
 // Utility commands

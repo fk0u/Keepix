@@ -286,53 +286,82 @@ pub fn get_media_items(
     category_filter: Option<i32>,
     star_filter: Option<i32>,
     uncategorized_only: bool,
+    camera_model: Option<&str>,
+    lens_model: Option<&str>,
+    color_label: Option<&str>,
+    sort_by: &str,
+    sort_order: &str,
     offset: i64,
     limit: i64,
 ) -> Result<Vec<MediaItem>> {
-    let mut sql = String::from(
+    let order_col = match sort_by {
+        "date" => "date_taken",
+        "size" => "file_size",
+        "rating" => "star_rating",
+        "type" => "file_type",
+        _ => "file_name",
+    };
+
+    let order_dir = match sort_order {
+        "desc" => "DESC",
+        _ => "ASC",
+    };
+
+    let sql = format!(
         "SELECT id, project_id, file_path, file_name, file_type, file_size,
                 width, height, category_id, star_rating, color_label,
                 thumbnail_path, preview_path, exif_json, file_hash, date_taken,
                 created_at, updated_at
-         FROM media_items WHERE project_id = ?1",
+         FROM media_items 
+         WHERE project_id = :project_id
+           AND (:category_filter IS NULL OR category_id = :category_filter)
+           AND (:uncategorized_only = 0 OR category_id IS NULL)
+           AND (:star_filter IS NULL OR star_rating >= :star_filter)
+           AND (:camera_model IS NULL OR json_extract(exif_json, '$.camera_model') = :camera_model)
+           AND (:lens_model IS NULL OR json_extract(exif_json, '$.lens_model') = :lens_model)
+           AND (:color_label IS NULL OR color_label = :color_label)
+         ORDER BY {} {} 
+         LIMIT :limit OFFSET :offset",
+        order_col, order_dir
     );
-
-    if let Some(cat_id) = category_filter {
-        sql.push_str(&format!(" AND category_id = {}", cat_id));
-    }
-    if uncategorized_only {
-        sql.push_str(" AND category_id IS NULL");
-    }
-    if let Some(star) = star_filter {
-        sql.push_str(&format!(" AND star_rating >= {}", star));
-    }
-
-    sql.push_str(" ORDER BY file_name ASC LIMIT ?2 OFFSET ?3");
 
     let mut stmt = conn.prepare(&sql)?;
     let items = stmt
-        .query_map(params![project_id, limit, offset], |row| {
-            Ok(MediaItem {
-                id: row.get(0)?,
-                project_id: row.get(1)?,
-                file_path: row.get(2)?,
-                file_name: row.get(3)?,
-                file_type: row.get(4)?,
-                file_size: row.get(5)?,
-                width: row.get(6)?,
-                height: row.get(7)?,
-                category_id: row.get(8)?,
-                star_rating: row.get(9)?,
-                color_label: row.get(10)?,
-                thumbnail_path: row.get(11)?,
-                preview_path: row.get(12)?,
-                exif_json: row.get(13)?,
-                file_hash: row.get(14)?,
-                date_taken: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
-            })
-        })?
+        .query_map(
+            rusqlite::named_params! {
+                ":project_id": project_id,
+                ":category_filter": category_filter,
+                ":uncategorized_only": if uncategorized_only { 1 } else { 0 },
+                ":star_filter": star_filter,
+                ":camera_model": camera_model,
+                ":lens_model": lens_model,
+                ":color_label": color_label,
+                ":limit": limit,
+                ":offset": offset,
+            },
+            |row| {
+                Ok(MediaItem {
+                    id: row.get(0)?,
+                    project_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    file_name: row.get(3)?,
+                    file_type: row.get(4)?,
+                    file_size: row.get(5)?,
+                    width: row.get(6)?,
+                    height: row.get(7)?,
+                    category_id: row.get(8)?,
+                    star_rating: row.get(9)?,
+                    color_label: row.get(10)?,
+                    thumbnail_path: row.get(11)?,
+                    preview_path: row.get(12)?,
+                    exif_json: row.get(13)?,
+                    file_hash: row.get(14)?,
+                    date_taken: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
+                })
+            },
+        )?
         .collect::<Result<Vec<_>>>()?;
 
     Ok(items)
@@ -557,18 +586,107 @@ pub fn get_media_count(
     conn: &Connection,
     project_id: &str,
     category_filter: Option<i32>,
+    star_filter: Option<i32>,
     uncategorized_only: bool,
+    camera_model: Option<&str>,
+    lens_model: Option<&str>,
+    color_label: Option<&str>,
 ) -> Result<i64> {
-    let mut sql = String::from(
-        "SELECT COUNT(*) FROM media_items WHERE project_id = ?1",
-    );
+    let sql = "SELECT COUNT(*) FROM media_items 
+               WHERE project_id = :project_id
+                 AND (:category_filter IS NULL OR category_id = :category_filter)
+                 AND (:uncategorized_only = 0 OR category_id IS NULL)
+                 AND (:star_filter IS NULL OR star_rating >= :star_filter)
+                 AND (:camera_model IS NULL OR json_extract(exif_json, '$.camera_model') = :camera_model)
+                 AND (:lens_model IS NULL OR json_extract(exif_json, '$.lens_model') = :lens_model)
+                 AND (:color_label IS NULL OR color_label = :color_label)";
 
-    if let Some(cat_id) = category_filter {
-        sql.push_str(&format!(" AND category_id = {}", cat_id));
-    }
-    if uncategorized_only {
-        sql.push_str(" AND category_id IS NULL");
+    conn.query_row(
+        sql,
+        rusqlite::named_params! {
+            ":project_id": project_id,
+            ":category_filter": category_filter,
+            ":uncategorized_only": if uncategorized_only { 1 } else { 0 },
+            ":star_filter": star_filter,
+            ":camera_model": camera_model,
+            ":lens_model": lens_model,
+            ":color_label": color_label,
+        },
+        |row| row.get(0),
+    )
+}
+
+/// Unique EXIF filter options
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExifFilters {
+    pub camera_models: Vec<String>,
+    pub lens_models: Vec<String>,
+    pub color_labels: Vec<String>,
+}
+
+/// Query distinct camera/lens models and color labels from database
+pub fn get_unique_exif_metadata(conn: &Connection, project_id: &str) -> Result<ExifFilters> {
+    let mut camera_models = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT json_extract(exif_json, '$.camera_model') 
+             FROM media_items 
+             WHERE project_id = ?1 AND exif_json IS NOT NULL",
+        )?;
+        let mut rows = stmt.query(params![project_id])?;
+        while let Some(row) = rows.next()? {
+            if let Some(val) = row.get::<_, Option<String>>(0)? {
+                let trimmed = val.trim().to_string();
+                if !trimmed.is_empty() && !camera_models.contains(&trimmed) {
+                    camera_models.push(trimmed);
+                }
+            }
+        }
     }
 
-    conn.query_row(&sql, params![project_id], |row| row.get(0))
+    let mut lens_models = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT json_extract(exif_json, '$.lens_model') 
+             FROM media_items 
+             WHERE project_id = ?1 AND exif_json IS NOT NULL",
+        )?;
+        let mut rows = stmt.query(params![project_id])?;
+        while let Some(row) = rows.next()? {
+            if let Some(val) = row.get::<_, Option<String>>(0)? {
+                let trimmed = val.trim().to_string();
+                if !trimmed.is_empty() && !lens_models.contains(&trimmed) {
+                    lens_models.push(trimmed);
+                }
+            }
+        }
+    }
+
+    let mut color_labels = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT color_label 
+             FROM media_items 
+             WHERE project_id = ?1 AND color_label IS NOT NULL",
+        )?;
+        let mut rows = stmt.query(params![project_id])?;
+        while let Some(row) = rows.next()? {
+            if let Some(val) = row.get::<_, Option<String>>(0)? {
+                let trimmed = val.trim().to_string();
+                if !trimmed.is_empty() && !color_labels.contains(&trimmed) {
+                    color_labels.push(trimmed);
+                }
+            }
+        }
+    }
+
+    camera_models.sort();
+    lens_models.sort();
+    color_labels.sort();
+
+    Ok(ExifFilters {
+        camera_models,
+        lens_models,
+        color_labels,
+    })
 }
