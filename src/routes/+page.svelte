@@ -161,6 +161,42 @@
       icon: '📤',
     },
   ]);
+
+  let loadedProjectImages = $state<Record<string, string>>({});
+
+  async function loadProjectThumbnail(path: string) {
+    if (loadedProjectImages[path]) return;
+    const { getImageDataUri } = await import('$lib/services/image-cache');
+    const dataUri = await getImageDataUri(path);
+    if (dataUri) {
+      loadedProjectImages = { ...loadedProjectImages, [path]: dataUri };
+    }
+  }
+
+  function lazyLoadProjectAction(node: HTMLElement, path: string | null) {
+    if (!path) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            loadProjectThumbnail(path);
+            observer.unobserve(node);
+          }
+        }
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(node);
+
+    return {
+      destroy() {
+        observer.unobserve(node);
+        observer.disconnect();
+      },
+    };
+  }
 </script>
 
 <div
@@ -314,16 +350,25 @@
               onkeydown={(e) => e.key === 'Enter' && openProject(project)}
               style="animation-delay: {idx * 50}ms"
             >
-              <!-- Cover area with gradient -->
-              <div class="project-cover">
-                <div class="cover-gradient"></div>
-                <div class="cover-icon">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
-                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                    <circle cx="8.5" cy="8.5" r="1.5"/>
-                    <polyline points="21 15 16 10 5 21"/>
-                  </svg>
-                </div>
+              <!-- Cover area with gradient or thumbnail -->
+              <div class="project-cover" use:lazyLoadProjectAction={project.thumbnail_path}>
+                {#if project.thumbnail_path && loadedProjectImages[project.thumbnail_path]}
+                  <img
+                    src={loadedProjectImages[project.thumbnail_path]}
+                    alt={project.name}
+                    class="project-thumb-img"
+                    draggable="false"
+                  />
+                {:else}
+                  <div class="cover-gradient"></div>
+                  <div class="cover-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.4">
+                      <rect x="3" y="3" width="18" height="18" rx="2"/>
+                      <circle cx="8.5" cy="8.5" r="1.5"/>
+                      <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                  </div>
+                {/if}
                 <div class="project-item-count">
                   <span>{project.total_items}</span>
                   <span class="count-label">items</span>
@@ -829,6 +874,19 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .project-thumb-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .project-card:hover .project-thumb-img {
+    transform: scale(1.05);
   }
 
   .cover-gradient {

@@ -10,6 +10,7 @@ export interface Project {
   created_at: string;
   last_opened: string;
   total_items: number;
+  thumbnail_path: string | null;
 }
 
 /** Represents a single photo or video file */

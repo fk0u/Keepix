@@ -17,6 +17,7 @@ pub struct Project {
     pub created_at: String,
     pub last_opened: String,
     pub total_items: i64,
+    pub thumbnail_path: Option<String>,
 }
 
 /// Represents a media item (photo or video)
@@ -203,7 +204,9 @@ pub fn create_project(conn: &Connection, id: &str, name: &str, root_path: &str) 
 /// Get a project by ID
 pub fn get_project(conn: &Connection, id: &str) -> Result<Project> {
     conn.query_row(
-        "SELECT id, name, root_path, created_at, last_opened, total_items FROM projects WHERE id = ?1",
+        "SELECT id, name, root_path, created_at, last_opened, total_items,
+                (SELECT thumbnail_path FROM media_items WHERE project_id = projects.id AND thumbnail_path IS NOT NULL LIMIT 1) AS thumbnail_path
+         FROM projects WHERE id = ?1",
         params![id],
         |row| {
             Ok(Project {
@@ -213,6 +216,7 @@ pub fn get_project(conn: &Connection, id: &str) -> Result<Project> {
                 created_at: row.get(3)?,
                 last_opened: row.get(4)?,
                 total_items: row.get(5)?,
+                thumbnail_path: row.get(6)?,
             })
         },
     )
@@ -221,7 +225,9 @@ pub fn get_project(conn: &Connection, id: &str) -> Result<Project> {
 /// List all projects ordered by last opened
 pub fn list_projects(conn: &Connection) -> Result<Vec<Project>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, root_path, created_at, last_opened, total_items FROM projects ORDER BY last_opened DESC",
+        "SELECT id, name, root_path, created_at, last_opened, total_items,
+                (SELECT thumbnail_path FROM media_items WHERE project_id = projects.id AND thumbnail_path IS NOT NULL LIMIT 1) AS thumbnail_path
+         FROM projects ORDER BY last_opened DESC",
     )?;
 
     let projects = stmt
@@ -233,6 +239,7 @@ pub fn list_projects(conn: &Connection) -> Result<Vec<Project>> {
                 created_at: row.get(3)?,
                 last_opened: row.get(4)?,
                 total_items: row.get(5)?,
+                thumbnail_path: row.get(6)?,
             })
         })?
         .collect::<Result<Vec<_>>>()?;
