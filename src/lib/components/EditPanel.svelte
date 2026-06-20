@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import { invoke } from '@tauri-apps/api/core';
   import type { MediaItem } from '$lib/types';
   import { currentItem, displayItems, mediaItems } from '$lib/stores/media';
@@ -66,6 +66,12 @@
 
   async function applyPreset(presetId: string) {
     if (!item) return;
+    
+    // Commit the preset immediately (stop hovering)
+    isHoveringPreset = false;
+    originalAdjustmentsBeforeHover = null;
+    originalPresetBeforeHover = null;
+
     activePreset = presetId;
 
     if (presetId === 'none') {
@@ -122,8 +128,30 @@
       adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, parsedValues);
       activePreset = null; // Custom preset applied
 
+      // Offer saving to Custom Presets
+      const saveToCustom = confirm(
+        $locale === 'id' 
+          ? 'Preset berhasil diimpor! Simpan ke daftar preset kustom Anda?' 
+          : 'Preset imported successfully! Save it to your custom presets list?'
+      );
+      if (saveToCustom) {
+        const fileName = selected.split(/[\\/]/).pop() || '';
+        const defaultName = fileName.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+        const presetName = prompt(
+          $locale === 'id' ? 'Masukkan nama preset:' : 'Enter preset name:', 
+          defaultName
+        );
+        if (presetName) {
+          const id = 'custom_' + Date.now();
+          customPresets = [...customPresets, { id, name: presetName, values: parsedValues }];
+          saveCustomPresets();
+          activePreset = id;
+        }
+      }
+
       // Optimistically update store
       item.adjustments = JSON.stringify(adjustments);
+      item.applied_preset = activePreset;
       const updateList = (list: MediaItem[]) => {
         const idx = list.findIndex(i => i.id === item!.id);
         if (idx !== -1) {
@@ -140,6 +168,157 @@
       console.error('Failed to import preset:', err);
       toast.error($t('edit.import_preset.fail', { err: err.toString() }));
     }
+  }
+
+  // --- Preset Hover Previews ---
+  let originalAdjustmentsBeforeHover = $state<Adjustments | null>(null);
+  let originalPresetBeforeHover = $state<string | null>(null);
+  let isHoveringPreset = $state(false);
+
+  function previewPreset(presetId: string) {
+    if (!item) return;
+
+    if (!isHoveringPreset) {
+      originalAdjustmentsBeforeHover = { ...adjustments };
+      originalPresetBeforeHover = activePreset;
+      isHoveringPreset = true;
+    }
+
+    if (presetId === 'none') {
+      adjustments = { ...DEFAULT_ADJUSTMENTS };
+    } else {
+      const presetDef = PRESETS.find(p => p.id === presetId);
+      if (presetDef && presetDef.values) {
+        adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, presetDef.values);
+      }
+    }
+
+    updateStoreAdjustmentsOnly();
+  }
+
+  function previewCustomPreset(preset: CustomPreset) {
+    if (!item) return;
+
+    if (!isHoveringPreset) {
+      originalAdjustmentsBeforeHover = { ...adjustments };
+      originalPresetBeforeHover = activePreset;
+      isHoveringPreset = true;
+    }
+
+    adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, preset.values);
+    updateStoreAdjustmentsOnly();
+  }
+
+  function restorePresetPreview() {
+    if (!item || !isHoveringPreset || !originalAdjustmentsBeforeHover) return;
+
+    adjustments = { ...originalAdjustmentsBeforeHover };
+    activePreset = originalPresetBeforeHover;
+    isHoveringPreset = false;
+    originalAdjustmentsBeforeHover = null;
+    originalPresetBeforeHover = null;
+
+    updateStoreAdjustmentsOnly();
+  }
+
+  function updateStoreAdjustmentsOnly() {
+    if (!item) return;
+    item.adjustments = JSON.stringify(adjustments);
+    item.applied_preset = activePreset;
+    
+    const updateList = (list: MediaItem[]) => {
+      const idx = list.findIndex(i => i.id === item!.id);
+      if (idx !== -1) {
+        list[idx] = { ...item! };
+      }
+    };
+
+    const currentMedia = get(mediaItems);
+    updateList(currentMedia);
+    mediaItems.set([...currentMedia]);
+  }
+
+  // --- Custom Preset CRUD ---
+  interface CustomPreset {
+    id: string;
+    name: string;
+    values: Partial<Adjustments>;
+  }
+
+  let customPresets = $state<CustomPreset[]>([]);
+
+  function loadCustomPresets() {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('keepix_custom_presets');
+      if (saved) {
+        try {
+          customPresets = JSON.parse(saved);
+        } catch {
+          customPresets = [];
+        }
+      }
+    }
+  }
+
+  function saveCustomPresets() {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('keepix_custom_presets', JSON.stringify(customPresets));
+    }
+  }
+
+  onMount(() => {
+    loadCustomPresets();
+  });
+
+  async function applyCustomPreset(preset: CustomPreset) {
+    if (!item) return;
+    
+    isHoveringPreset = false;
+    originalAdjustmentsBeforeHover = null;
+    originalPresetBeforeHover = null;
+
+    activePreset = preset.id;
+    adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, preset.values);
+
+    item.adjustments = JSON.stringify(adjustments);
+    item.applied_preset = activePreset;
+    const updateList = (list: MediaItem[]) => {
+      const idx = list.findIndex(i => i.id === item!.id);
+      if (idx !== -1) {
+        list[idx] = { ...item! };
+      }
+    };
+    const currentMedia = get(mediaItems);
+    updateList(currentMedia);
+    mediaItems.set([...currentMedia]);
+
+    await saveAdjustmentsToBackend();
+    toast.success($t('edit.title') + ': ' + preset.name);
+  }
+
+  function deleteCustomPreset(presetId: string) {
+    customPresets = customPresets.filter(p => p.id !== presetId);
+    saveCustomPresets();
+    if (activePreset === presetId) {
+      activePreset = null;
+    }
+    toast.info($locale === 'id' ? 'Preset kustom dihapus' : 'Custom preset removed');
+  }
+
+  function saveCurrentAsPreset() {
+    if (!item) return;
+    const name = prompt($locale === 'id' ? 'Masukkan nama preset:' : 'Enter preset name:');
+    if (!name) return;
+
+    const id = 'custom_' + Date.now();
+    const presetValues: Partial<Adjustments> = { ...adjustments };
+    delete presetValues.rotation;
+    delete presetValues.flipH;
+    delete presetValues.flipV;
+
+    customPresets = [...customPresets, { id, name, values: presetValues }];
+    saveCustomPresets();
+    toast.success($locale === 'id' ? 'Preset kustom disimpan' : 'Custom preset saved');
   }
 
   // Debounced save
@@ -258,6 +437,35 @@
   // Determine if adjustments have changed from defaults
   let hasEdits = $derived(!isDefault(adjustments));
 
+  let activeEditsList = $derived.by(() => {
+    const list: { name: string; value: string }[] = [];
+    for (const key of Object.keys(DEFAULT_ADJUSTMENTS) as Array<keyof Adjustments>) {
+      if (adjustments[key] !== DEFAULT_ADJUSTMENTS[key]) {
+        let name = '';
+        let value = '';
+        if (key === 'flipH') {
+          name = $locale === 'id' ? 'Cermin H' : 'Flip H';
+          value = adjustments[key] ? 'ON' : 'OFF';
+        } else if (key === 'flipV') {
+          name = $locale === 'id' ? 'Cermin V' : 'Flip V';
+          value = adjustments[key] ? 'ON' : 'OFF';
+        } else {
+          name = $t(`edit.${key}`);
+          if (name === `edit.${key}`) name = key;
+          const val = adjustments[key];
+          if (typeof val === 'number') {
+            value = val > 0 && key !== 'rotation' ? `+${val}` : val.toString();
+            if (key === 'rotation') value = `${val}°`;
+          } else {
+            value = String(val);
+          }
+        }
+        list.push({ name, value });
+      }
+    }
+    return list;
+  });
+
   onMount(() => {
     function handleAction(e: Event) {
       const detail = (e as CustomEvent).detail;
@@ -315,6 +523,22 @@
     </div>
   {:else}
     <div class="panel-content">
+      {#if activeEditsList.length > 0}
+        <div class="active-adjustments-hud">
+          <div class="hud-header">
+            <span>{$locale === 'id' ? 'Penyesuaian Aktif' : 'Active Adjustments'}</span>
+            <button class="hud-reset-btn" onclick={handleReset}>{$locale === 'id' ? 'Reset Semua' : 'Reset All'}</button>
+          </div>
+          <div class="hud-chips">
+            {#each activeEditsList as edit}
+              <span class="hud-chip">
+                <span class="hud-chip-name">{edit.name}:</span>
+                <span class="hud-chip-value">{edit.value}</span>
+              </span>
+            {/each}
+          </div>
+        </div>
+      {/if}
 
       {#each sections as sec}
         <section class="edit-section">
@@ -336,17 +560,54 @@
                       class="preset-btn"
                       class:active={activePreset === preset.id || (preset.id === 'none' && !activePreset)}
                       onclick={() => applyPreset(preset.id)}
+                      onmouseenter={() => previewPreset(preset.id)}
+                      onmouseleave={restorePresetPreview}
                     >
                       <span class="preset-label">{$t(preset.labelKey)}</span>
                     </button>
                   {/each}
                 </div>
-                <button class="import-preset-btn" onclick={importPreset}>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
-                    <path d="M8 12V2M4 6l4-4 4 4M2 14h12"/>
-                  </svg>
-                  <span>{$t('edit.import_preset')}</span>
-                </button>
+
+                {#if customPresets.length > 0}
+                  <div class="custom-presets-title">{$locale === 'id' ? 'Preset Kustom' : 'Custom Presets'}</div>
+                  <div class="presets-grid">
+                    {#each customPresets as preset}
+                      <div class="custom-preset-wrapper">
+                        <button
+                          class="preset-btn custom-preset-btn"
+                          class:active={activePreset === preset.id}
+                          onclick={() => applyCustomPreset(preset)}
+                          onmouseenter={() => previewCustomPreset(preset)}
+                          onmouseleave={restorePresetPreview}
+                        >
+                          <span class="preset-label">{preset.name}</span>
+                        </button>
+                        <button class="delete-preset-btn" onclick={(e) => { e.stopPropagation(); deleteCustomPreset(preset.id); }} title="Delete Preset">
+                          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <line x1="4" y1="4" x2="12" y2="12"/>
+                            <line x1="12" y1="4" x2="4" y2="12"/>
+                          </svg>
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+
+                <div class="preset-actions-row">
+                  <button class="action-preset-btn" onclick={saveCurrentAsPreset}>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M13 3H3v10h10V5l-2-2z"/>
+                      <circle cx="8" cy="8" r="3"/>
+                    </svg>
+                    <span>{$locale === 'id' ? 'Simpan Baru...' : 'Save Current...'}</span>
+                  </button>
+                  <button class="action-preset-btn" onclick={importPreset}>
+                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M8 12V2M4 6l4-4 4 4M2 14h12"/>
+                    </svg>
+                    <span>{$locale === 'id' ? 'Impor...' : 'Import...'}</span>
+                  </button>
+                </div>
 
               {:else if sec.id === 'basic'}
                 <div class="slider-group">
@@ -893,9 +1154,68 @@
     margin-top: var(--space-2);
   }
 
-  .import-preset-btn {
+  .custom-presets-title {
+    margin-top: var(--space-4);
+    margin-bottom: var(--space-2);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 4px;
+    grid-column: span 2;
+  }
+
+  .custom-preset-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+
+  .custom-preset-wrapper:hover .delete-preset-btn {
+    opacity: 1;
+  }
+
+  .custom-preset-btn {
     width: 100%;
+  }
+
+  .delete-preset-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    opacity: 0;
+    transition: all 0.15s ease-in-out;
+  }
+
+  .delete-preset-btn:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
+  }
+
+  .preset-actions-row {
+    display: flex;
+    gap: var(--space-2);
     margin-top: var(--space-3);
+    grid-column: span 2;
+    width: 100%;
+  }
+
+  .action-preset-btn {
+    flex: 1;
     background: var(--bg-tertiary);
     border: 1px dashed var(--border-strong);
     color: var(--text-secondary);
@@ -911,10 +1231,69 @@
     gap: var(--space-2);
   }
 
-  .import-preset-btn:hover {
+  .action-preset-btn:hover {
     border-style: solid;
     border-color: var(--accent);
     color: var(--text-primary);
     background: rgba(255, 255, 255, 0.02);
+  }
+
+  .active-adjustments-hud {
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .hud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+  }
+
+  .hud-reset-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0;
+  }
+
+  .hud-reset-btn:hover {
+    color: var(--accent-light);
+    text-decoration: underline;
+  }
+
+  .hud-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .hud-chip {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    display: flex;
+    gap: 4px;
+  }
+
+  .hud-chip-name {
+    color: var(--text-tertiary);
+  }
+
+  .hud-chip-value {
+    color: var(--accent);
+    font-weight: 600;
   }
 </style>

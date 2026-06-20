@@ -44,9 +44,10 @@
   let filmstripImages = $state<Record<string, string>>({});
 
   // Canvas editing state
-  let editCanvas = $state<HTMLCanvasElement | null>(null);
-  let sourceImage = $state<HTMLImageElement | null>(null);
-  let originalImageSrc = $state('');
+  let editCanvases = $state<Record<string, HTMLCanvasElement>>({});
+  let sourceImages = $state<Record<string, HTMLImageElement>>({});
+  let originalImageSrcs = $state<Record<string, string>>({});
+  let editCanvas = $derived(item ? editCanvases[item.id] || null : null);
 
   // Healing mode state
   let healingActive = $state(false);
@@ -122,46 +123,67 @@
     }
   });
 
-  // Render canvas with adjustments when item or adjustments change
+  // Render canvases with adjustments for all active items when they change
   $effect(() => {
-    if (!item || item.file_type !== 'photo') return;
-    const src = getPreviewSrc(item);
-    if (!src) return;
-
-    const adj = parseAdjustments(item.adjustments);
-    if (isDefault(adj)) {
-      // No adjustments — use plain img display
-      editCanvas = null;
-      return;
+    // Keep track of which IDs we are rendering to clean up old ones
+    const activeIds = new Set(activeItems.map(i => i.id));
+    
+    // Clean up canvases for items that are no longer active
+    for (const id of Object.keys(editCanvases)) {
+      if (!activeIds.has(id)) {
+        delete editCanvases[id];
+        delete sourceImages[id];
+        delete originalImageSrcs[id];
+      }
     }
 
-    if (sourceImage && originalImageSrc === src) {
-      // Reuse already loaded image for instant synchronous rendering
-      const canvas = document.createElement('canvas');
-      renderToCanvas(canvas, sourceImage, adj);
-      editCanvas = canvas;
-    } else {
-      // Load image and render to canvas
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        sourceImage = img;
-        originalImageSrc = src;
+    for (const activeItem of activeItems) {
+      if (activeItem.file_type !== 'photo') continue;
+      const itemId = activeItem.id;
+      const src = getPreviewSrc(activeItem);
+      if (!src) continue;
 
-        const canvas = document.createElement('canvas');
-        renderToCanvas(canvas, img, adj);
-        editCanvas = canvas;
-
-        // Store a copy for healing source
-        if (!healSourceCanvas) {
-          healSourceCanvas = document.createElement('canvas');
+      const adj = parseAdjustments(activeItem.adjustments);
+      if (isDefault(adj)) {
+        if (editCanvases[itemId]) {
+          delete editCanvases[itemId];
         }
-        healSourceCanvas.width = img.naturalWidth || img.width;
-        healSourceCanvas.height = img.naturalHeight || img.height;
-        const sctx = healSourceCanvas.getContext('2d');
-        if (sctx) sctx.drawImage(img, 0, 0);
-      };
-      img.src = src;
+        continue;
+      }
+
+      const cachedImg = sourceImages[itemId];
+      const cachedSrc = originalImageSrcs[itemId];
+
+      if (cachedImg && cachedSrc === src) {
+        // Reuse already loaded image for instant synchronous rendering
+        const canvas = document.createElement('canvas');
+        renderToCanvas(canvas, cachedImg, adj);
+        editCanvases[itemId] = canvas;
+      } else {
+        // Load image and render to canvas
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          sourceImages[itemId] = img;
+          originalImageSrcs[itemId] = src;
+
+          const canvas = document.createElement('canvas');
+          renderToCanvas(canvas, img, adj);
+          editCanvases[itemId] = canvas;
+
+          // If this is the main item, store copy for healing source
+          if (item && itemId === item.id) {
+            if (!healSourceCanvas) {
+              healSourceCanvas = document.createElement('canvas');
+            }
+            healSourceCanvas.width = img.naturalWidth || img.width;
+            healSourceCanvas.height = img.naturalHeight || img.height;
+            const sctx = healSourceCanvas.getContext('2d');
+            if (sctx) sctx.drawImage(img, 0, 0);
+          }
+        };
+        img.src = src;
+      }
     }
   });
 
@@ -296,10 +318,7 @@
 
   // Get the edited canvas element for the current item
   function getEditCanvasForItem(activeItem: MediaItem): HTMLCanvasElement | null {
-    if (item && activeItem.id === item.id && editCanvas) {
-      return editCanvas;
-    }
-    return null;
+    return editCanvases[activeItem.id] || null;
   }
 
   function getEditCanvasDataUrl(activeItem: MediaItem): string {

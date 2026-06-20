@@ -119,7 +119,11 @@
   </div>
 
   <!-- Panel 1 (Main/Center) -->
-  <div class="split-panel" style="width: {rightCollapsed ? 'auto' : (sizes[1] + 'px')}; flex: 1;">
+  <div 
+    class="split-panel" 
+    class:collapsible-transition={!isDragging} 
+    style="width: {rightCollapsed ? 'auto' : (sizes[1] + 'px')}; flex: 1;"
+  >
     {@render center?.()}
   </div>
 
@@ -138,11 +142,15 @@
   {/if}
 
   <!-- Panel 2 (Edit Panel) -->
-  {#if !rightCollapsed}
-    <div class="split-panel" style="width: {sizes[2]}px;">
+  <div 
+    class="split-panel" 
+    class:collapsible-transition={!isDragging} 
+    style="width: {rightCollapsed ? '0px' : (sizes[2] + 'px')}; min-width: {rightCollapsed ? '0px' : (minSizes[2] + 'px')};"
+  >
+    <div style="width: {sizes[2]}px; height: 100%; flex-shrink: 0;">
       {@render right?.()}
     </div>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -158,6 +166,10 @@
     flex-direction: column;
     overflow: hidden;
     height: 100%;
+  }
+
+  .split-panel.collapsible-transition {
+    transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .split-resizer {
