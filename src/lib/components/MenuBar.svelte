@@ -124,7 +124,7 @@
       </svg>
     </div>
     <span class="brand-title">Keepix <span class="brand-by">by KOU</span></span>
-    <span class="version-pill">v4.0.1</span>
+    <span class="version-pill">v4.1.0</span>
   </div>
 
   <!-- Menu Triggers & Dropdowns -->

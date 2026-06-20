@@ -1,6 +1,6 @@
 [package]
 name = "keepix_core"
-version = "4.0.1"
+version = "4.1.0"
 edition = "2021"
 description = "Core photo & video culling engine logic for Keepix"
 authors = ["Keepix Contributors"]

@@ -2125,7 +2125,7 @@ dependencies = [
 
 [[package]]
 name = "keepix-app"
-version = "4.0.1"
+version = "4.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2153,7 +2153,7 @@ dependencies = [
 
 [[package]]
 name = "keepix_core"
-version = "4.0.1"
+version = "4.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

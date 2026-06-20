@@ -52,7 +52,7 @@
         </button>
       </div>
       <div class="sidebar-footer">
-        <span>Keepix v4.0.1</span>
+        <span>Keepix v4.1.0</span>
       </div>
     </div>
 
