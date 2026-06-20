@@ -353,4 +353,3 @@ pub fn generate_video_placeholder(
         height: 0,
     })
 }
-

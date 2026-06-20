@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// Database state managed by Tauri
+/// Database state managed by the application
 pub struct DbState {
     pub conn: Mutex<Connection>,
 }

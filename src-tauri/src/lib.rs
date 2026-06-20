@@ -1,11 +1,7 @@
-mod cache;
 mod commands;
-mod db;
-mod metadata;
-mod scanner;
-mod thumbnail;
 
-use db::DbState;
+use keepix_core::db::DbState;
+use keepix_core::cache::CacheState;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -22,7 +18,7 @@ pub fn run() {
                 .app_data_dir()
                 .expect("Failed to get app data directory");
 
-            let conn = db::init_db(&app_data_dir)
+            let conn = keepix_core::db::init_db(&app_data_dir)
                 .expect("Failed to initialize database");
 
             // Store the database connection in Tauri's managed state
@@ -31,7 +27,7 @@ pub fn run() {
             });
 
             // Initialize the image cache
-            app.manage(cache::CacheState::new());
+            app.manage(CacheState::new());
 
             log::info!("Keepix initialized. Data dir: {:?}", app_data_dir);
 

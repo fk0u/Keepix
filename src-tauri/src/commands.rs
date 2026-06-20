@@ -1,7 +1,7 @@
-use crate::db::{self, DbState, MediaItem};
-use crate::metadata;
-use crate::scanner;
-use crate::thumbnail;
+use keepix_core::db::{self, DbState, MediaItem};
+use keepix_core::metadata;
+use keepix_core::scanner;
+use keepix_core::thumbnail;
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager};
@@ -787,7 +787,7 @@ pub async fn export_media_items(
     Ok(total)
 }
 
-use crate::cache;
+use keepix_core::cache;
 
 // ============================================================================
 // Image cache commands
