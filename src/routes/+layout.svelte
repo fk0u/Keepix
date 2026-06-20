@@ -10,12 +10,21 @@
   import AboutModal from '$lib/components/AboutModal.svelte';
   import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
-  import { showSettings, showAbout, showShortcuts, showExport, initTheme } from '$lib/stores/ui';
+  import HelpModal from '$lib/components/HelpModal.svelte';
+  import { showSettings, showAbout, showShortcuts, showExport, showHelp, initTheme } from '$lib/stores/ui';
 
   onMount(() => {
     initLanguage();
     initTheme();
   });
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === 'F1') {
+      e.preventDefault();
+      showHelp.update(h => !h);
+    }
+  }
 
   // Snippet-based slot for Svelte 5
   let { children } = $props<{ children: any }>();
@@ -41,6 +50,11 @@
 {#if $showExport}
   <ExportModal onClose={() => showExport.set(false)} />
 {/if}
+{#if $showHelp}
+  <HelpModal onClose={() => showHelp.set(false)} />
+{/if}
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <!-- Toast notifications -->
 {#if $toasts.length > 0}

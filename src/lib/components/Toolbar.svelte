@@ -1,6 +1,7 @@
 <script lang="ts">
   import { viewMode, toggleViewMode, sortBy, sortOrder, compareMode, syncZoom, loadMediaItems, diagnosticsMode, showHistogram, autoAdvance } from '$lib/stores/media';
   import { currentProject } from '$lib/stores/project';
+  import { t, locale } from '$lib/i18n';
 
   let {
     thumbnailSize = $bindable(200),
@@ -36,7 +37,7 @@
         class="btn btn-icon btn-ghost"
         class:active={$viewMode === 'grid'}
         onclick={() => viewMode.set('grid')}
-        data-tooltip="Grid view"
+        data-tooltip={$t('toolbar.view.grid')}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
           <rect x="3" y="3" width="7" height="7" rx="1"/>
@@ -49,7 +50,7 @@
         class="btn btn-icon btn-ghost"
         class:active={$viewMode === 'preview'}
         onclick={() => viewMode.set('preview')}
-        data-tooltip="Preview mode"
+        data-tooltip={$t('toolbar.view.preview')}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
@@ -60,23 +61,23 @@
 
     <!-- Sort controls -->
     <div class="toolbar-divider"></div>
-    <span class="toolbar-label">Sort:</span>
+    <span class="toolbar-label">{$t('toolbar.sort')}:</span>
     <select
       class="toolbar-select"
       value={$sortBy}
       onchange={(e) => { sortBy.set((e.currentTarget as HTMLSelectElement).value as any); handleSortChange(); }}
     >
-      <option value="name">Name</option>
-      <option value="date">Date Taken</option>
-      <option value="size">File Size</option>
-      <option value="rating">Star Rating</option>
-      <option value="type">File Type</option>
+      <option value="name">{$t('toolbar.sort.name')}</option>
+      <option value="date">{$t('toolbar.sort.date')}</option>
+      <option value="size">{$t('toolbar.sort.size')}</option>
+      <option value="rating">{$t('toolbar.sort.rating')}</option>
+      <option value="type">{$t('toolbar.sort.type')}</option>
     </select>
 
     <button
       class="btn btn-icon btn-ghost sort-order-btn"
       onclick={toggleSortOrder}
-      data-tooltip={$sortOrder === 'asc' ? 'Ascending' : 'Descending'}
+      data-tooltip={$t($sortOrder === 'asc' ? 'toolbar.sort.asc' : 'toolbar.sort.desc')}
     >
       {#if $sortOrder === 'asc'}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -94,15 +95,15 @@
     <!-- Compare Mode options (Preview mode only) -->
     {#if $viewMode === 'preview'}
       <div class="toolbar-divider"></div>
-      <span class="toolbar-label">Compare:</span>
+      <span class="toolbar-label">{$t('toolbar.compare')}:</span>
       <select
         class="toolbar-select"
         value={$compareMode}
         onchange={(e) => compareMode.set((e.currentTarget as HTMLSelectElement).value as any)}
       >
-        <option value="single">Single (1-up)</option>
-        <option value="2-up">2-Up Split</option>
-        <option value="4-up">4-Up Split</option>
+        <option value="single">{$t('toolbar.compare.single')}</option>
+        <option value="2-up">{$t('toolbar.compare.2up')}</option>
+        <option value="4-up">{$t('toolbar.compare.4up')}</option>
       </select>
 
       {#if $compareMode !== 'single'}
@@ -110,7 +111,7 @@
           class="btn btn-icon btn-ghost compare-sync-btn"
           class:active={$syncZoom}
           onclick={() => syncZoom.update(z => !z)}
-          data-tooltip="Link Zoom & Pan"
+          data-tooltip={$t('toolbar.compare.sync')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M15 3h6v6"/>
@@ -122,15 +123,15 @@
       {/if}
 
       <div class="toolbar-divider"></div>
-      <span class="toolbar-label">Diagnostics:</span>
+      <span class="toolbar-label">{$t('toolbar.diagnostics')}:</span>
       <select
         class="toolbar-select"
         value={$diagnosticsMode}
         onchange={(e) => diagnosticsMode.set((e.currentTarget as HTMLSelectElement).value as any)}
       >
-        <option value="none">Normal View</option>
-        <option value="peaking">Focus Peaking</option>
-        <option value="zebra">Exposure Alerts</option>
+        <option value="none">{$t('toolbar.diagnostics.none')}</option>
+        <option value="peaking">{$t('toolbar.diagnostics.peaking')}</option>
+        <option value="zebra">{$t('toolbar.diagnostics.zebra')}</option>
       </select>
     {/if}
 
@@ -168,7 +169,7 @@
         class="btn btn-icon btn-ghost"
         class:active={$showHistogram}
         onclick={() => showHistogram.update(h => !h)}
-        data-tooltip="Toggle Histogram (H)"
+        data-tooltip={$t('toolbar.histogram.tooltip')}
         aria-label="Toggle Histogram"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -182,7 +183,7 @@
       class="btn btn-icon btn-ghost"
       class:active={$autoAdvance}
       onclick={() => autoAdvance.update(a => !a)}
-      data-tooltip="Auto-Advance (A)"
+      data-tooltip={$t('toolbar.autoadvance.tooltip')}
       aria-label="Toggle Auto-Advance"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -195,7 +196,7 @@
       class="btn btn-icon btn-ghost"
       class:active={showMetadata}
       onclick={() => showMetadata = !showMetadata}
-      data-tooltip="Info panel (I)"
+      data-tooltip={$t('toolbar.info.tooltip')}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="12" r="10"/>
@@ -208,7 +209,7 @@
     <button
       class="btn btn-icon btn-ghost"
       onclick={onShowShortcuts}
-      data-tooltip="Shortcuts (?)"
+      data-tooltip={$t('toolbar.shortcuts.tooltip')}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <rect x="2" y="4" width="20" height="16" rx="2"/>

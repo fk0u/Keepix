@@ -72,6 +72,8 @@ export interface ExifData {
   gps_altitude: number | null;
   file_size: number | null;
   file_format: string | null;
+  duration: number | null;
+  unsupported: boolean | null;
 }
 
 /** Scan progress event from backend */

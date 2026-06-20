@@ -873,3 +873,96 @@ pub fn set_setting(
 pub fn convert_file_path(path: String) -> String {
     path.replace('\\', "/")
 }
+
+// ============================================================================
+// Video metadata commands
+// ============================================================================
+
+#[tauri::command]
+pub fn save_video_metadata(
+    db_state: tauri::State<'_, db::DbState>,
+    media_id: String,
+    width: i32,
+    height: i32,
+    duration: f64,
+    thumbnail_base64: String,
+) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose};
+    use std::path::Path;
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    
+    // Load media item and project
+    let item = db::get_media_item(&conn, &media_id).map_err(|e| e.to_string())?;
+    let project = db::get_project(&conn, &item.project_id).map_err(|e| e.to_string())?;
+    
+    // Get thumbnail directory
+    let thumb_dir = scanner::get_thumbnail_dir(Path::new(&project.root_path));
+    let thumb_path = thumb_dir.join(format!("{}_thumb.webp", media_id));
+    let preview_path = thumb_dir.join(format!("{}_preview.webp", media_id));
+    
+    // Clean and decode base64
+    let base64_data = if thumbnail_base64.contains("base64,") {
+        thumbnail_base64.split("base64,").nth(1).unwrap_or(&thumbnail_base64)
+    } else {
+        &thumbnail_base64
+    };
+    let decoded_bytes = general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+        
+    // Write WebP thumbnail files
+    std::fs::write(&thumb_path, &decoded_bytes)
+        .map_err(|e| format!("Failed to write thumbnail: {}", e))?;
+    std::fs::write(&preview_path, &decoded_bytes)
+        .map_err(|e| format!("Failed to write preview: {}", e))?;
+        
+    // Update thumbnail paths in DB
+    db::update_thumbnail(
+        &conn,
+        &media_id,
+        &thumb_path.to_string_lossy(),
+        Some(&preview_path.to_string_lossy()),
+    )
+    .map_err(|e| e.to_string())?;
+    
+    // Generate and save video EXIF JSON
+    let mut exif = metadata::ExifData::default();
+    exif.width = Some(width as u32);
+    exif.height = Some(height as u32);
+    exif.duration = Some(duration);
+    exif.file_size = Some(item.file_size);
+    exif.file_format = Path::new(&item.file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_uppercase());
+        
+    let exif_json = serde_json::to_string(&exif).map_err(|e| e.to_string())?;
+    db::update_exif(&conn, &media_id, &exif_json, Some(width), Some(height))
+        .map_err(|e| e.to_string())?;
+        
+    Ok(())
+}
+
+#[tauri::command]
+pub fn mark_video_unsupported(
+    db_state: tauri::State<'_, db::DbState>,
+    media_id: String,
+) -> Result<(), String> {
+    use std::path::Path;
+    let conn = db_state.conn.lock().map_err(|e| e.to_string())?;
+    let item = db::get_media_item(&conn, &media_id).map_err(|e| e.to_string())?;
+    
+    let mut exif = metadata::ExifData::default();
+    exif.unsupported = Some(true);
+    exif.file_size = Some(item.file_size);
+    exif.file_format = Path::new(&item.file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_uppercase());
+        
+    let exif_json = serde_json::to_string(&exif).map_err(|e| e.to_string())?;
+    db::update_exif(&conn, &media_id, &exif_json, Some(-1), Some(-1))
+        .map_err(|e| e.to_string())?;
+        
+    Ok(())
+}

@@ -8,6 +8,7 @@
   import { currentProject } from '$lib/stores/project';
   import { getCategoryColor, COLOR_LABELS } from '$lib/types';
   import { goto } from '$app/navigation';
+  import { t } from '$lib/i18n';
 
   let { onOpenExport }: { onOpenExport?: () => void } = $props();
 
@@ -53,11 +54,11 @@
           <polyline points="16 6 12 2 8 6"/>
           <line x1="12" y1="2" x2="12" y2="15"/>
         </svg>
-        Export Culled...
+        {$t('sidebar.export_culled')}
       </button>
     </div>
 
-    <div class="nav-section-title">Categories</div>
+    <div class="nav-section-title">{$t('sidebar.categories')}</div>
 
     <!-- All items -->
     <button
@@ -66,7 +67,7 @@
       onclick={handleFilterAll}
     >
       <span class="nav-dot" style="background: var(--text-tertiary)"></span>
-      <span class="nav-label">All</span>
+      <span class="nav-label">{$t('sidebar.all')}</span>
       <span class="nav-count">{$totalItems}</span>
     </button>
 
@@ -79,7 +80,7 @@
           onclick={() => { setFilterUncategorized(); handleFilterChange(); }}
         >
           <span class="nav-dot" style="background: var(--text-tertiary); opacity: 0.4"></span>
-          <span class="nav-label">Uncategorized</span>
+          <span class="nav-label">{$t('sidebar.uncategorized')}</span>
           <span class="nav-count">{stat.count}</span>
         </button>
       {/if}
@@ -96,7 +97,13 @@
           onclick={async () => { setFilterCategory(stat.category_id!); await handleFilterChange(); }}
         >
           <span class="nav-dot" style="background: {getCategoryColor(stat.category_id)}"></span>
-          <span class="nav-label">{stat.category_name}</span>
+          <span class="nav-label">
+            {stat.category_id === 1 ? $t('ref.trash') :
+             stat.category_id === 2 ? $t('ref.best') :
+             stat.category_id === 3 ? $t('ref.draft') :
+             stat.category_id === 4 ? $t('ref.review') :
+             stat.category_name}
+          </span>
           <span class="nav-count">{stat.count}</span>
           <kbd class="nav-hotkey">{stat.category_id}</kbd>
         </button>
@@ -104,10 +111,10 @@
     {/each}
 
     <div class="nav-divider"></div>
-    <div class="nav-section-title">EXIF Filters</div>
+    <div class="nav-section-title">{$t('sidebar.exif_filters')}</div>
     
     <div class="exif-filter-group">
-      <span class="exif-filter-label">Camera</span>
+      <span class="exif-filter-label">{$t('sidebar.camera')}</span>
       <select 
         class="exif-select" 
         value={$cameraModelFilter ?? ''}
@@ -116,7 +123,7 @@
           await handleFilterChange();
         }}
       >
-        <option value="">All Cameras</option>
+        <option value="">{$t('sidebar.all_cameras')}</option>
         {#each $exifFilters.camera_models as model}
           <option value={model}>{model}</option>
         {/each}
@@ -124,7 +131,7 @@
     </div>
 
     <div class="exif-filter-group">
-      <span class="exif-filter-label">Lens</span>
+      <span class="exif-filter-label">{$t('sidebar.lens')}</span>
       <select 
         class="exif-select" 
         value={$lensModelFilter ?? ''}
@@ -133,7 +140,7 @@
           await handleFilterChange();
         }}
       >
-        <option value="">All Lenses</option>
+        <option value="">{$t('sidebar.all_lenses')}</option>
         {#each $exifFilters.lens_models as lens}
           <option value={lens}>{lens}</option>
         {/each}
@@ -141,7 +148,7 @@
     </div>
 
     <div class="exif-filter-group" style="flex-direction: row; align-items: center; justify-content: space-between; padding-top: var(--space-2);">
-      <span class="exif-filter-label" style="margin-bottom: 0;">Group Bursts</span>
+      <span class="exif-filter-label" style="margin-bottom: 0;">{$t('sidebar.group_bursts')}</span>
       <input 
         type="checkbox" 
         checked={$groupBursts} 
@@ -154,7 +161,7 @@
     </div>
 
     <div class="nav-divider"></div>
-    <div class="nav-section-title">Color Labels</div>
+    <div class="nav-section-title">{$t('sidebar.color_labels')}</div>
     <div class="color-labels-grid">
       {#each COLOR_LABELS as label}
         <button
@@ -172,13 +179,13 @@
   <!-- Keyboard hints -->
   <div class="sidebar-footer">
     <div class="hint-row">
-      <kbd>←</kbd><kbd>→</kbd> <span>Navigate</span>
+      <kbd>←</kbd><kbd>→</kbd> <span>{$t('sidebar.navigate')}</span>
     </div>
     <div class="hint-row">
-      <kbd>Space</kbd> <span>Toggle view</span>
+      <kbd>Space</kbd> <span>{$t('sidebar.toggle_view')}</span>
     </div>
     <div class="hint-row">
-      <kbd>Ctrl+Z</kbd> <span>Undo</span>
+      <kbd>Ctrl+Z</kbd> <span>{$t('sidebar.undo')}</span>
     </div>
   </div>
 </aside>

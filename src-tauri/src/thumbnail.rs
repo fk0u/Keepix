@@ -1,7 +1,6 @@
 use image::codecs::webp::WebPEncoder;
 use image::{DynamicImage, ImageEncoder, ImageReader};
 use fast_image_resize::{self as fir};
-use std::num::NonZeroU32;
 use std::path::Path;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -76,7 +75,7 @@ fn extract_raw_jpeg(source_path: &Path) -> Option<Vec<u8>> {
     }
 
     if let (Some(off), Some(len)) = (best_offset, best_length) {
-        let file = File::open(source_path).ok()?;
+        let mut file = File::open(source_path).ok()?;
         file.seek(SeekFrom::Start(off as u64)).ok()?;
         let mut jpeg_data = vec![0u8; len as usize];
         file.read_exact(&mut jpeg_data).ok()?;
@@ -88,7 +87,7 @@ fn extract_raw_jpeg(source_path: &Path) -> Option<Vec<u8>> {
 
 /// Fallback byte scanner to find embedded JPEG starts/ends in container (e.g. CR3)
 fn scan_for_embedded_jpeg(source_path: &Path) -> Option<Vec<u8>> {
-    let mut file = File::open(source_path).ok()?;
+    let file = File::open(source_path).ok()?;
     let metadata = file.metadata().ok()?;
     let size = metadata.len();
     

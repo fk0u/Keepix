@@ -72,6 +72,9 @@ pub fn run() {
             commands::set_setting,
             // Utilities
             commands::convert_file_path,
+            // Video processing
+            commands::save_video_metadata,
+            commands::mark_video_unsupported,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepix");

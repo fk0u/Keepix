@@ -6,22 +6,24 @@
   import { toast } from '$lib/stores/toast';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
+  import {
+    type Adjustments,
+    DEFAULT_ADJUSTMENTS,
+    PRESETS,
+    isDefault,
+    mergePreset,
+  } from '$lib/services/image-editor';
 
   let { item }: { item: MediaItem | null } = $props();
 
   // Edit State
-  let adjustments = $state({
-    exposure: 0,
-    contrast: 0,
-    highlights: 0,
-    shadows: 0,
-    temperature: 0,
-    tint: 0,
-    saturation: 0,
-    vibrance: 0,
-  });
-
+  let adjustments = $state<Adjustments>({ ...DEFAULT_ADJUSTMENTS });
   let activePreset = $state<string | null>(null);
+  let activeSection = $state<string>('presets');
+  let showBeforeAfter = $state(false);
+  let healingMode = $state(false);
+  let healBrushSize = $state(20);
+  let clipboardAdjustments = $state<Adjustments | null>(null);
 
   // Load adjustments when item changes
   let prevItemId = '';
@@ -30,7 +32,8 @@
       prevItemId = item.id;
       if (item.adjustments) {
         try {
-          adjustments = JSON.parse(item.adjustments);
+          const parsed = JSON.parse(item.adjustments);
+          adjustments = { ...DEFAULT_ADJUSTMENTS, ...parsed };
         } catch {
           resetAdjustments();
         }
@@ -38,47 +41,29 @@
         resetAdjustments();
       }
       activePreset = item.applied_preset || null;
+      healingMode = false;
     }
   });
 
   function resetAdjustments() {
-    adjustments = {
-      exposure: 0,
-      contrast: 0,
-      highlights: 0,
-      shadows: 0,
-      temperature: 0,
-      tint: 0,
-      saturation: 0,
-      vibrance: 0,
-    };
+    adjustments = { ...DEFAULT_ADJUSTMENTS };
   }
-
-  // Presets definition
-  const presets = [
-    { id: 'none', label: 'edit.preset.none', values: null },
-    { id: 'cinematic', label: 'edit.preset.cinematic', values: { exposure: -10, contrast: 20, highlights: -15, shadows: 10, temperature: -5, tint: 5, saturation: -15, vibrance: 10 } },
-    { id: 'vintage', label: 'edit.preset.vintage', values: { exposure: 10, contrast: -15, highlights: -20, shadows: 25, temperature: 15, tint: -5, saturation: -20, vibrance: -10 } },
-    { id: 'bw', label: 'edit.preset.bw', values: { exposure: 0, contrast: 30, highlights: 20, shadows: -20, temperature: 0, tint: 0, saturation: -100, vibrance: 0 } },
-    { id: 'punchy', label: 'edit.preset.punchy', values: { exposure: 5, contrast: 15, highlights: -10, shadows: 5, temperature: 0, tint: 0, saturation: 10, vibrance: 25 } }
-  ];
 
   async function applyPreset(presetId: string) {
     if (!item) return;
-    
     activePreset = presetId;
-    
+
     if (presetId === 'none') {
       resetAdjustments();
     } else {
-      const presetDef = presets.find(p => p.id === presetId);
+      const presetDef = PRESETS.find(p => p.id === presetId);
       if (presetDef && presetDef.values) {
-        adjustments = { ...adjustments, ...presetDef.values };
+        adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, presetDef.values);
       }
     }
-    
+
     await saveAdjustmentsToBackend();
-    toast.success($t('edit.title') + ': ' + $t(presets.find(p => p.id === presetId)?.label || ''));
+    toast.success($t('edit.title') + ': ' + $t(PRESETS.find(p => p.id === presetId)?.labelKey || ''));
   }
 
   // Debounced save
@@ -86,18 +71,17 @@
   function handleSliderChange() {
     clearTimeout(saveTimeout);
     saveTimeout = setTimeout(saveAdjustmentsToBackend, 500);
-    
+
     // Optimistically update the store item so PreviewView reacts immediately
     if (item) {
       item.adjustments = JSON.stringify(adjustments);
-      // Update in the store lists
       const updateList = (list: MediaItem[]) => {
         const idx = list.findIndex(i => i.id === item!.id);
         if (idx !== -1) {
           list[idx] = { ...item! };
         }
       };
-      
+
       const currentMedia = get(mediaItems);
       updateList(currentMedia);
       mediaItems.set([...currentMedia]);
@@ -107,13 +91,13 @@
   async function saveAdjustmentsToBackend() {
     if (!item) return;
     try {
-      await invoke('save_adjustments', { 
-        mediaId: item.id, 
-        adjustmentsJson: JSON.stringify(adjustments) 
+      await invoke('save_adjustments', {
+        mediaId: item.id,
+        adjustmentsJson: JSON.stringify(adjustments),
       });
       await invoke('save_applied_preset', {
         mediaId: item.id,
-        presetName: activePreset
+        presetName: activePreset,
       });
     } catch (err) {
       console.error('Failed to save adjustments:', err);
@@ -123,116 +107,338 @@
   function handleReset() {
     resetAdjustments();
     activePreset = 'none';
+    healingMode = false;
     handleSliderChange();
   }
 
+  function handleRotate(deg: number) {
+    adjustments.rotation = ((adjustments.rotation || 0) + deg + 360) % 360;
+    handleSliderChange();
+  }
+
+  function handleFlipH() {
+    adjustments.flipH = !adjustments.flipH;
+    handleSliderChange();
+  }
+
+  function handleFlipV() {
+    adjustments.flipV = !adjustments.flipV;
+    handleSliderChange();
+  }
+
+  function toggleBeforeAfter() {
+    showBeforeAfter = !showBeforeAfter;
+    window.dispatchEvent(new CustomEvent('keepix-edit', {
+      detail: { type: 'before-after', active: showBeforeAfter },
+    }));
+  }
+
+  function toggleHealing() {
+    healingMode = !healingMode;
+    window.dispatchEvent(new CustomEvent('keepix-edit', {
+      detail: { type: 'healing-mode', active: healingMode, brushSize: healBrushSize },
+    }));
+    if (healingMode) {
+      toast.info($t('edit.heal.hint'));
+    }
+  }
+
+  function updateHealBrushSize() {
+    if (healingMode) {
+      window.dispatchEvent(new CustomEvent('keepix-edit', {
+        detail: { type: 'healing-brush-size', brushSize: healBrushSize },
+      }));
+    }
+  }
+
+  function copyAdjustments() {
+    clipboardAdjustments = { ...adjustments };
+    toast.success($t('edit.copy_success'));
+  }
+
+  function pasteAdjustments() {
+    if (!clipboardAdjustments || !item) return;
+    adjustments = { ...clipboardAdjustments };
+    activePreset = null;
+    handleSliderChange();
+    toast.success($t('edit.paste_success'));
+  }
+
+  // Sections for accordion
+  const sections = [
+    { id: 'presets', labelKey: 'edit.presets', icon: '✨' },
+    { id: 'basic', labelKey: 'edit.basic', icon: '☀️' },
+    { id: 'color', labelKey: 'edit.color', icon: '🎨' },
+    { id: 'detail', labelKey: 'edit.detail', icon: '🔍' },
+    { id: 'effects', labelKey: 'edit.effects', icon: '🎬' },
+    { id: 'transform', labelKey: 'edit.transform', icon: '🔄' },
+    { id: 'tools', labelKey: 'edit.tools', icon: '🔧' },
+  ];
+
+  function toggleSection(id: string) {
+    activeSection = activeSection === id ? '' : id;
+  }
+
+  // Determine if adjustments have changed from defaults
+  let hasEdits = $derived(!isDefault(adjustments));
+
   onMount(() => {
     function handleAction(e: Event) {
-      if ((e as CustomEvent).detail === 'reset-adjustments') {
+      const detail = (e as CustomEvent).detail;
+      if (detail === 'reset-adjustments') {
         handleReset();
+      } else if (detail === 'copy-adjustments') {
+        copyAdjustments();
+      } else if (detail === 'paste-adjustments') {
+        pasteAdjustments();
       }
     }
     window.addEventListener('keepix-action', handleAction);
     return () => window.removeEventListener('keepix-action', handleAction);
   });
-
 </script>
 
 <aside class="edit-panel">
   <div class="panel-header">
     <h3>{$t('edit.title')}</h3>
-    <button class="btn-text" onclick={handleReset}>{$t('edit.reset')}</button>
+    <div class="header-actions">
+      {#if hasEdits}
+        <span class="edit-indicator" title="Edits applied">●</span>
+      {/if}
+      <button class="btn-icon" onclick={copyAdjustments} title={$t('edit.copy')}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="4" y="4" width="9" height="9" rx="1"/>
+          <path d="M10 4V2.5A1.5 1.5 0 008.5 1H2.5A1.5 1.5 0 001 2.5v6A1.5 1.5 0 002.5 10H4"/>
+        </svg>
+      </button>
+      <button class="btn-icon" onclick={pasteAdjustments} title={$t('edit.paste')} disabled={!clipboardAdjustments}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="3" y="1" width="8" height="12" rx="1"/>
+          <path d="M5 1V0h4v1"/>
+          <line x1="5" y1="6" x2="9" y2="6"/>
+          <line x1="5" y1="8" x2="9" y2="8"/>
+          <line x1="5" y1="10" x2="7" y2="10"/>
+        </svg>
+      </button>
+      <button class="btn-text" onclick={handleReset}>{$t('edit.reset')}</button>
+    </div>
   </div>
 
   {#if !item}
     <div class="empty-state">
-      <p>Select a photo to edit</p>
+      <p>{$t('edit.empty')}</p>
+    </div>
+  {:else if item.file_type !== 'photo'}
+    <div class="empty-state">
+      <p>{$t('edit.video_note')}</p>
     </div>
   {:else}
     <div class="panel-content">
-      
-      <!-- Presets Section -->
-      <section class="edit-section">
-        <h4 class="section-title">{$t('edit.presets')}</h4>
-        <div class="presets-grid">
-          {#each presets as preset}
-            <button 
-              class="preset-btn" 
-              class:active={activePreset === preset.id || (preset.id === 'none' && !activePreset)}
-              onclick={() => applyPreset(preset.id)}
-            >
-              {$t(preset.label)}
-            </button>
-          {/each}
-        </div>
-      </section>
 
-      <!-- Basic Section -->
-      <section class="edit-section">
-        <h4 class="section-title">{$t('edit.basic')}</h4>
-        
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="exposure">{$t('edit.exposure')}</label>
-            <span class="value">{adjustments.exposure}</span>
-          </div>
-          <input type="range" id="exposure" min="-100" max="100" bind:value={adjustments.exposure} oninput={handleSliderChange} />
-        </div>
+      {#each sections as sec}
+        <section class="edit-section">
+          <button class="section-toggle" class:open={activeSection === sec.id} onclick={() => toggleSection(sec.id)}>
+            <span class="section-icon">{sec.icon}</span>
+            <span class="section-label">{$t(sec.labelKey)}</span>
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 4 6 7 9 4"/>
+            </svg>
+          </button>
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="contrast">{$t('edit.contrast')}</label>
-            <span class="value">{adjustments.contrast}</span>
-          </div>
-          <input type="range" id="contrast" min="-100" max="100" bind:value={adjustments.contrast} oninput={handleSliderChange} />
-        </div>
+          {#if activeSection === sec.id}
+            <div class="section-body">
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="highlights">{$t('edit.highlights')}</label>
-            <span class="value">{adjustments.highlights}</span>
-          </div>
-          <input type="range" id="highlights" min="-100" max="100" bind:value={adjustments.highlights} oninput={handleSliderChange} />
-        </div>
+              {#if sec.id === 'presets'}
+                <div class="presets-grid">
+                  {#each PRESETS as preset}
+                    <button
+                      class="preset-btn"
+                      class:active={activePreset === preset.id || (preset.id === 'none' && !activePreset)}
+                      onclick={() => applyPreset(preset.id)}
+                    >
+                      <span class="preset-label">{$t(preset.labelKey)}</span>
+                    </button>
+                  {/each}
+                </div>
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="shadows">{$t('edit.shadows')}</label>
-            <span class="value">{adjustments.shadows}</span>
-          </div>
-          <input type="range" id="shadows" min="-100" max="100" bind:value={adjustments.shadows} oninput={handleSliderChange} />
-        </div>
-      </section>
+              {:else if sec.id === 'basic'}
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-exposure">{$t('edit.exposure')}</label>
+                    <span class="value">{adjustments.exposure}</span>
+                  </div>
+                  <input type="range" id="ed-exposure" min="-100" max="100" bind:value={adjustments.exposure} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-contrast">{$t('edit.contrast')}</label>
+                    <span class="value">{adjustments.contrast}</span>
+                  </div>
+                  <input type="range" id="ed-contrast" min="-100" max="100" bind:value={adjustments.contrast} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-highlights">{$t('edit.highlights')}</label>
+                    <span class="value">{adjustments.highlights}</span>
+                  </div>
+                  <input type="range" id="ed-highlights" min="-100" max="100" bind:value={adjustments.highlights} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-shadows">{$t('edit.shadows')}</label>
+                    <span class="value">{adjustments.shadows}</span>
+                  </div>
+                  <input type="range" id="ed-shadows" min="-100" max="100" bind:value={adjustments.shadows} oninput={handleSliderChange} />
+                </div>
 
-      <!-- Color Section -->
-      <section class="edit-section">
-        <h4 class="section-title">{$t('edit.color')}</h4>
+              {:else if sec.id === 'color'}
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-temp">{$t('edit.temperature')}</label>
+                    <span class="value">{adjustments.temperature}</span>
+                  </div>
+                  <input type="range" id="ed-temp" min="-100" max="100" bind:value={adjustments.temperature} oninput={handleSliderChange} class="slider-temp" />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-tint">{$t('edit.tint')}</label>
+                    <span class="value">{adjustments.tint}</span>
+                  </div>
+                  <input type="range" id="ed-tint" min="-100" max="100" bind:value={adjustments.tint} oninput={handleSliderChange} class="slider-tint" />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-saturation">{$t('edit.saturation')}</label>
+                    <span class="value">{adjustments.saturation}</span>
+                  </div>
+                  <input type="range" id="ed-saturation" min="-100" max="100" bind:value={adjustments.saturation} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-vibrance">{$t('edit.vibrance')}</label>
+                    <span class="value">{adjustments.vibrance}</span>
+                  </div>
+                  <input type="range" id="ed-vibrance" min="-100" max="100" bind:value={adjustments.vibrance} oninput={handleSliderChange} />
+                </div>
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="temp">{$t('edit.temperature')}</label>
-            <span class="value">{adjustments.temperature}</span>
-          </div>
-          <input type="range" id="temp" min="-100" max="100" bind:value={adjustments.temperature} oninput={handleSliderChange} class="slider-temp" />
-        </div>
+              {:else if sec.id === 'detail'}
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-sharpen">{$t('edit.sharpen')}</label>
+                    <span class="value">{adjustments.sharpen}</span>
+                  </div>
+                  <input type="range" id="ed-sharpen" min="0" max="100" bind:value={adjustments.sharpen} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-clarity">{$t('edit.clarity')}</label>
+                    <span class="value">{adjustments.clarity}</span>
+                  </div>
+                  <input type="range" id="ed-clarity" min="-100" max="100" bind:value={adjustments.clarity} oninput={handleSliderChange} />
+                </div>
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="tint">{$t('edit.tint')}</label>
-            <span class="value">{adjustments.tint}</span>
-          </div>
-          <input type="range" id="tint" min="-100" max="100" bind:value={adjustments.tint} oninput={handleSliderChange} class="slider-tint" />
-        </div>
+              {:else if sec.id === 'effects'}
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-vignette">{$t('edit.vignette')}</label>
+                    <span class="value">{adjustments.vignette}</span>
+                  </div>
+                  <input type="range" id="ed-vignette" min="0" max="100" bind:value={adjustments.vignette} oninput={handleSliderChange} />
+                </div>
+                <div class="slider-group">
+                  <div class="slider-header">
+                    <label for="ed-grain">{$t('edit.grain')}</label>
+                    <span class="value">{adjustments.grain}</span>
+                  </div>
+                  <input type="range" id="ed-grain" min="0" max="100" bind:value={adjustments.grain} oninput={handleSliderChange} />
+                </div>
 
-        <div class="slider-group">
-          <div class="slider-header">
-            <label for="saturation">{$t('edit.saturation')}</label>
-            <span class="value">{adjustments.saturation}</span>
-          </div>
-          <input type="range" id="saturation" min="-100" max="100" bind:value={adjustments.saturation} oninput={handleSliderChange} />
-        </div>
+              {:else if sec.id === 'transform'}
+                <div class="transform-grid">
+                  <button class="transform-btn" onclick={() => handleRotate(-90)} title={$t('edit.rotate_ccw')}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M4 7l-3-3 3-3"/>
+                      <path d="M1 4h10a5 5 0 015 5v0a5 5 0 01-5 5H6"/>
+                    </svg>
+                    <span>{$t('edit.rotate_ccw')}</span>
+                  </button>
+                  <button class="transform-btn" onclick={() => handleRotate(90)} title={$t('edit.rotate_cw')}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M14 7l3-3-3-3"/>
+                      <path d="M17 4H7a5 5 0 00-5 5v0a5 5 0 005 5h5"/>
+                    </svg>
+                    <span>{$t('edit.rotate_cw')}</span>
+                  </button>
+                  <button class="transform-btn" class:active={adjustments.flipH} onclick={handleFlipH} title={$t('edit.flip_h')}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M9 2v14"/>
+                      <path d="M3 6l-2 3 2 3"/>
+                      <path d="M15 6l2 3-2 3"/>
+                    </svg>
+                    <span>{$t('edit.flip_h')}</span>
+                  </button>
+                  <button class="transform-btn" class:active={adjustments.flipV} onclick={handleFlipV} title={$t('edit.flip_v')}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M2 9h14"/>
+                      <path d="M6 3L9 1l3 2"/>
+                      <path d="M6 15l3 2 3-2"/>
+                    </svg>
+                    <span>{$t('edit.flip_v')}</span>
+                  </button>
+                </div>
+                {#if adjustments.rotation !== 0}
+                  <div class="transform-status">
+                    {$t('edit.rotation')}: {adjustments.rotation}°
+                  </div>
+                {/if}
 
-      </section>
+              {:else if sec.id === 'tools'}
+                <div class="tools-section">
+                  <button class="tool-btn" class:active={showBeforeAfter} onclick={toggleBeforeAfter}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <rect x="1" y="2" width="16" height="14" rx="2"/>
+                      <line x1="9" y1="2" x2="9" y2="16"/>
+                      <text x="4" y="11" font-size="5" fill="currentColor" stroke="none">B</text>
+                      <text x="11" y="11" font-size="5" fill="currentColor" stroke="none">A</text>
+                    </svg>
+                    <span>{$t('edit.before_after')}</span>
+                    <kbd>B</kbd>
+                  </button>
+
+                  <button class="tool-btn" class:active={healingMode} onclick={toggleHealing}>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <circle cx="9" cy="9" r="7"/>
+                      <line x1="9" y1="5" x2="9" y2="13"/>
+                      <line x1="5" y1="9" x2="13" y2="9"/>
+                    </svg>
+                    <span>{$t('edit.heal')}</span>
+                  </button>
+
+                  {#if healingMode}
+                    <div class="heal-options">
+                      <div class="slider-group compact">
+                        <div class="slider-header">
+                          <label for="heal-size">{$t('edit.heal.brush_size')}</label>
+                          <span class="value">{healBrushSize}px</span>
+                        </div>
+                        <input type="range" id="heal-size" min="5" max="80" bind:value={healBrushSize} oninput={updateHealBrushSize} />
+                      </div>
+                      <div class="heal-hint">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                          <circle cx="6" cy="6" r="5"/>
+                          <line x1="6" y1="4" x2="6" y2="6"/>
+                          <circle cx="6" cy="8" r="0.5" fill="currentColor"/>
+                        </svg>
+                        {$t('edit.heal.hint')}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </section>
+      {/each}
     </div>
   {/if}
 </aside>
@@ -255,6 +461,7 @@
     justify-content: space-between;
     align-items: center;
     background: var(--bg-tertiary);
+    gap: var(--space-2);
   }
 
   .panel-header h3 {
@@ -264,6 +471,46 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--text-secondary);
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .edit-indicator {
+    color: var(--accent);
+    font-size: 10px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .btn-icon {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    transition: all 0.15s;
+  }
+
+  .btn-icon:hover:not(:disabled) {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border-color: var(--border-subtle);
+  }
+
+  .btn-icon:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
 
   .btn-text {
@@ -286,34 +533,85 @@
     justify-content: center;
     color: var(--text-tertiary);
     font-size: var(--text-sm);
+    padding: var(--space-4);
+    text-align: center;
   }
 
   .panel-content {
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-4);
     display: flex;
     flex-direction: column;
-    gap: var(--space-6);
   }
 
-  .section-title {
-    margin: 0 0 var(--space-3) 0;
+  /* Accordion sections */
+  .edit-section {
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .section-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
     font-size: var(--text-xs);
     font-weight: 700;
-    color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    transition: background 0.15s;
   }
 
+  .section-toggle:hover {
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-primary);
+  }
+
+  .section-icon {
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .section-label {
+    flex: 1;
+    text-align: left;
+  }
+
+  .chevron {
+    transition: transform 0.2s;
+  }
+
+  .section-toggle.open .chevron {
+    transform: rotate(180deg);
+  }
+
+  .section-body {
+    padding: 0 var(--space-4) var(--space-4);
+    animation: slideDown 0.15s ease-out;
+  }
+
+  @keyframes slideDown {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Sliders */
   .slider-group {
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  .slider-group.compact {
+    margin-bottom: var(--space-2);
   }
 
   .slider-header {
     display: flex;
     justify-content: space-between;
-    margin-bottom: var(--space-2);
+    margin-bottom: var(--space-1);
     font-size: var(--text-sm);
     color: var(--text-secondary);
   }
@@ -323,6 +621,7 @@
     color: var(--text-primary);
     min-width: 32px;
     text-align: right;
+    font-size: var(--text-xs);
   }
 
   input[type="range"] {
@@ -340,13 +639,18 @@
 
   input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    height: 16px;
-    width: 16px;
+    height: 14px;
+    width: 14px;
     border-radius: 50%;
     background: white;
-    margin-top: -6px;
+    margin-top: -5px;
     cursor: pointer;
     box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    transition: transform 0.1s;
+  }
+
+  input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
   }
 
   .slider-temp::-webkit-slider-runnable-track {
@@ -357,6 +661,7 @@
     background: linear-gradient(to right, #10b981, #e5e7eb, #d946ef);
   }
 
+  /* Presets Grid */
   .presets-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -367,21 +672,137 @@
     background: var(--bg-tertiary);
     border: 1px solid var(--border-subtle);
     color: var(--text-secondary);
-    padding: var(--space-2);
+    padding: var(--space-2) var(--space-2);
     border-radius: var(--radius-md);
-    font-size: var(--text-xs);
+    font-size: 10px;
     cursor: pointer;
     transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-height: 36px;
+    justify-content: center;
   }
 
   .preset-btn:hover {
     border-color: var(--text-tertiary);
     color: var(--text-primary);
+    transform: translateY(-1px);
   }
 
   .preset-btn.active {
     background: var(--accent-soft);
     border-color: var(--accent);
     color: white;
+  }
+
+  .preset-label {
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  /* Transform Grid */
+  .transform-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+
+  .transform-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: var(--space-3) var(--space-2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 10px;
+    transition: all 0.15s;
+  }
+
+  .transform-btn:hover {
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+  }
+
+  .transform-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .transform-status {
+    margin-top: var(--space-2);
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* Tools Section */
+  .tools-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .tool-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-3);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    transition: all 0.15s;
+    width: 100%;
+    text-align: left;
+  }
+
+  .tool-btn:hover {
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .tool-btn.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: white;
+  }
+
+  .tool-btn kbd {
+    margin-left: auto;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+    color: var(--text-tertiary);
+  }
+
+  .heal-options {
+    padding: var(--space-2) 0 0;
+  }
+
+  .heal-hint {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    padding: var(--space-2);
+    background: rgba(59, 130, 246, 0.08);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+    margin-top: var(--space-2);
   }
 </style>

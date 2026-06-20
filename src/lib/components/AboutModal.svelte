@@ -27,11 +27,11 @@
         
         <div class="credits">
           <div class="credit-item">
-            <span>Powered by</span>
+            <span>{$t('about.powered_by')}</span>
             <strong>Rust & Tauri</strong>
           </div>
           <div class="credit-item">
-            <span>UI Framework</span>
+            <span>{$t('about.ui_framework')}</span>
             <strong>SvelteKit</strong>
           </div>
         </div>

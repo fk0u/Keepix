@@ -3,10 +3,19 @@
   import { getCategoryColor, getCategoryName } from '$lib/types';
   import CategoryBadge from './CategoryBadge.svelte';
   import VideoPlayer from './VideoPlayer.svelte';
+  import BeforeAfterSlider from './BeforeAfterSlider.svelte';
   import { compareMode, syncZoom, diagnosticsMode, showHistogram } from '$lib/stores/media';
   import DiagnosticsCanvas from './DiagnosticsCanvas.svelte';
   import Histogram from './Histogram.svelte';
   import { getImageDataUri, prefetchImages } from '$lib/services/image-cache';
+  import {
+    type Adjustments,
+    DEFAULT_ADJUSTMENTS,
+    renderToCanvas,
+    cloneStampDab,
+    isDefault,
+  } from '$lib/services/image-editor';
+  import { onMount, onDestroy } from 'svelte';
 
   let {
     item,
@@ -33,6 +42,22 @@
   // Image data URIs loaded via cache
   let previewImages = $state<Record<string, string>>({});
   let filmstripImages = $state<Record<string, string>>({});
+
+  // Canvas editing state
+  let editCanvas = $state<HTMLCanvasElement | null>(null);
+  let sourceImage = $state<HTMLImageElement | null>(null);
+  let originalImageSrc = $state('');
+
+  // Healing mode state
+  let healingActive = $state(false);
+  let healBrushSize = $state(20);
+  let healSourceSet = $state(false);
+  let healSourcePos = $state({ x: 0, y: 0 });
+  let isPainting = $state(false);
+  let healSourceCanvas: HTMLCanvasElement | null = null;
+
+  // Before/After state
+  let showBeforeAfter = $state(false);
 
   // Reset zoom when items or selectedIndex changes
   $effect(() => {
@@ -72,18 +97,17 @@
 
   // Load filmstrip thumbnails (visible ones in batches)
   $effect(() => {
-    // Load a window of thumbnails around current selection
     const start = Math.max(0, selectedIndex - 20);
     const end = Math.min(items.length, selectedIndex + 30);
     const paths: (string | null)[] = [];
-    
+
     for (let i = start; i < end; i++) {
       const p = items[i].thumbnail_path;
       if (p && !filmstripImages[p]) {
         paths.push(p);
       }
     }
-    
+
     if (paths.length > 0) {
       prefetchImages(paths);
       paths.forEach(p => {
@@ -96,6 +120,42 @@
         }
       });
     }
+  });
+
+  // Render canvas with adjustments when item or adjustments change
+  $effect(() => {
+    if (!item || item.file_type !== 'photo') return;
+    const src = getPreviewSrc(item);
+    if (!src) return;
+
+    const adj = parseAdjustments(item.adjustments);
+    if (isDefault(adj)) {
+      // No adjustments — use plain img display
+      editCanvas = null;
+      return;
+    }
+
+    // Load image and render to canvas
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      sourceImage = img;
+      originalImageSrc = src;
+
+      const canvas = document.createElement('canvas');
+      renderToCanvas(canvas, img, adj);
+      editCanvas = canvas;
+
+      // Store a copy for healing source
+      if (!healSourceCanvas) {
+        healSourceCanvas = document.createElement('canvas');
+      }
+      healSourceCanvas.width = img.naturalWidth || img.width;
+      healSourceCanvas.height = img.naturalHeight || img.height;
+      const sctx = healSourceCanvas.getContext('2d');
+      if (sctx) sctx.drawImage(img, 0, 0);
+    };
+    img.src = src;
   });
 
   // Calculate items being compared dynamically based on compareMode
@@ -118,6 +178,15 @@
     return [item];
   });
 
+  function parseAdjustments(json: string | null): Adjustments {
+    if (!json) return { ...DEFAULT_ADJUSTMENTS };
+    try {
+      return { ...DEFAULT_ADJUSTMENTS, ...JSON.parse(json) };
+    } catch {
+      return { ...DEFAULT_ADJUSTMENTS };
+    }
+  }
+
   function getPreviewSrc(mediaItem: MediaItem): string {
     const path = mediaItem.preview_path || mediaItem.file_path;
     return previewImages[path] || '';
@@ -138,6 +207,7 @@
   }
 
   function handlePanelClick(e: MouseEvent, itemId: string) {
+    if (healingActive) return; // Don't zoom when healing
     e.stopPropagation();
     if (sharedZoomed) {
       sharedZoomed = false;
@@ -148,28 +218,88 @@
     }
   }
 
-  function getAdjustmentStyle(adjustmentsJson: string | null): string {
-    if (!adjustmentsJson) return '';
+  // Healing mouse handlers
+  function handleHealMouseDown(e: MouseEvent) {
+    if (!healingActive || !editCanvas) return;
+
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const canvas = editCanvas;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (e.altKey) {
+      // Set source point
+      healSourcePos = { x, y };
+      healSourceSet = true;
+      return;
+    }
+
+    if (!healSourceSet) return;
+    isPainting = true;
+
+    // Perform clone stamp
+    const ctx = canvas.getContext('2d');
+    if (ctx && healSourceCanvas) {
+      cloneStampDab(ctx, healSourceCanvas, healSourcePos.x, healSourcePos.y, x, y, healBrushSize * scaleX, 0.7);
+    }
+  }
+
+  function handleHealMouseMove(e: MouseEvent) {
+    if (!isPainting || !healingActive || !editCanvas || !healSourceSet) return;
+
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const canvas = editCanvas;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx && healSourceCanvas) {
+      const offsetX = x - (healSourcePos.x + (x - healSourcePos.x));
+      const offsetY = y - (healSourcePos.y + (y - healSourcePos.y));
+      cloneStampDab(ctx, healSourceCanvas, healSourcePos.x + offsetX, healSourcePos.y + offsetY, x, y, healBrushSize * scaleX, 0.7);
+    }
+  }
+
+  function handleHealMouseUp() {
+    isPainting = false;
+  }
+
+  // Listen for edit events from EditPanel
+  function handleEditEvent(e: Event) {
+    const detail = (e as CustomEvent).detail;
+    if (detail.type === 'before-after') {
+      showBeforeAfter = detail.active;
+    } else if (detail.type === 'healing-mode') {
+      healingActive = detail.active;
+      healBrushSize = detail.brushSize || 20;
+      healSourceSet = false;
+    } else if (detail.type === 'healing-brush-size') {
+      healBrushSize = detail.brushSize;
+    }
+  }
+
+  onMount(() => {
+    window.addEventListener('keepix-edit', handleEditEvent);
+    return () => window.removeEventListener('keepix-edit', handleEditEvent);
+  });
+
+  // Get the edited canvas element for the current item
+  function getEditCanvasForItem(activeItem: MediaItem): HTMLCanvasElement | null {
+    if (item && activeItem.id === item.id && editCanvas) {
+      return editCanvas;
+    }
+    return null;
+  }
+
+  function getEditCanvasDataUrl(activeItem: MediaItem): string {
+    const canvas = getEditCanvasForItem(activeItem);
+    if (!canvas) return '';
     try {
-      const adj = JSON.parse(adjustmentsJson);
-      
-      // Basic mappings
-      // exposure: brightness (-100 to 100 -> 0 to 2)
-      const brightness = 1 + (adj.exposure / 100);
-      // contrast: (-100 to 100 -> 0 to 2)
-      const contrast = 1 + (adj.contrast / 100);
-      // saturation: (-100 to 100 -> 0 to 2)
-      const saturate = 1 + (adj.saturation / 100);
-      // sepia/temperature simulation (very basic mapping for now)
-      let sepia = 0;
-      let hueRotate = 0;
-      if (adj.temperature > 0) {
-        sepia = adj.temperature / 100;
-      } else if (adj.temperature < 0) {
-        hueRotate = adj.temperature * -1; // arbitrary mapping
-      }
-      
-      return `filter: brightness(${brightness}) contrast(${contrast}) saturate(${saturate}) sepia(${sepia}) hue-rotate(${hueRotate}deg);`;
+      return canvas.toDataURL('image/png');
     } catch {
       return '';
     }
@@ -184,37 +314,66 @@
         class="preview-panel"
         class:active-panel={idx === 0}
         class:zoomed={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)}
+        class:healing-cursor={healingActive}
         onclick={(e) => activeItem.file_type === 'photo' && handlePanelClick(e, activeItem.id)}
-        onmousemove={handleMouseMove}
+        onmousemove={healingActive ? handleHealMouseMove : handleMouseMove}
+        onmousedown={healingActive ? handleHealMouseDown : undefined}
+        onmouseup={healingActive ? handleHealMouseUp : undefined}
         role="presentation"
       >
         {#if activeItem.file_type === 'photo'}
           {@const src = getPreviewSrc(activeItem)}
+          {@const adj = parseAdjustments(activeItem.adjustments)}
+          {@const hasAdj = !isDefault(adj)}
+          {@const canvasUrl = hasAdj ? getEditCanvasDataUrl(activeItem) : ''}
+
           {#if $diagnosticsMode !== 'none' && src}
             <DiagnosticsCanvas
-              {src}
+              src={canvasUrl || src}
               mode={$diagnosticsMode}
               {focusColor}
               {focusSensitivity}
               {gpuAccel}
               style={(sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
                 ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5); `
-                : '') + getAdjustmentStyle(activeItem.adjustments)}
+                : '')}
+            />
+          {:else if canvasUrl}
+            <img
+              src={canvasUrl}
+              alt={activeItem.file_name}
+              class="preview-img"
+              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
+                : ''}
+              draggable="false"
             />
           {:else if src}
             <img
               src={src}
               alt={activeItem.file_name}
               class="preview-img"
-              style={(sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
-                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5); `
-                : '') + getAdjustmentStyle(activeItem.adjustments)}
+              style={sharedZoomed && ($syncZoom || zoomedPanelId === activeItem.id)
+                ? `transform-origin: ${sharedZoomPos.x}% ${sharedZoomPos.y}%; transform: scale(2.5);`
+                : ''}
               draggable="false"
             />
           {:else}
             <div class="preview-loading">
               <div class="loading-spinner"></div>
               <span>Loading...</span>
+            </div>
+          {/if}
+
+          <!-- Healing source indicator -->
+          {#if healingActive && healSourceSet && activeItem.id === item?.id}
+            <div class="heal-source-indicator">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="7" cy="7" r="5"/>
+                <line x1="7" y1="3" x2="7" y2="11"/>
+                <line x1="3" y1="7" x2="11" y2="7"/>
+              </svg>
+              Source set
             </div>
           {/if}
         {:else}
@@ -285,6 +444,37 @@
       </div>
     {/if}
   {/if}
+
+  <!-- Before/After Overlay -->
+  {#if item && item.file_type === 'photo'}
+    <BeforeAfterSlider
+      beforeSrc={getPreviewSrc(item)}
+      afterCanvas={editCanvas}
+      visible={showBeforeAfter}
+      onClose={() => {
+        showBeforeAfter = false;
+        window.dispatchEvent(new CustomEvent('keepix-edit', {
+          detail: { type: 'before-after', active: false }
+        }));
+      }}
+    />
+  {/if}
+
+  <!-- Healing Mode Toolbar -->
+  {#if healingActive}
+    <div class="healing-toolbar">
+      <div class="healing-info">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="7" cy="7" r="6"/>
+          <line x1="7" y1="4" x2="7" y2="10"/>
+          <line x1="4" y1="7" x2="10" y2="7"/>
+        </svg>
+        <span>Healing Mode</span>
+        <span class="healing-divider">|</span>
+        <span class="healing-tip">Alt+Click = Set Source, Click = Paint</span>
+      </div>
+    </div>
+  {/if}
 </div>
 
 
@@ -337,6 +527,10 @@
 
   .preview-panel.zoomed {
     cursor: zoom-out;
+  }
+
+  .preview-panel.healing-cursor {
+    cursor: crosshair !important;
   }
 
   .preview-panel.active-panel {
@@ -503,5 +697,60 @@
     right: var(--space-4);
     z-index: 100;
     pointer-events: none;
+  }
+
+  /* Healing source indicator */
+  .heal-source-indicator {
+    position: absolute;
+    top: var(--space-3);
+    left: var(--space-3);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: rgba(34, 197, 94, 0.2);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    border-radius: 16px;
+    color: #22c55e;
+    font-size: 10px;
+    font-weight: 600;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  /* Healing toolbar */
+  .healing-toolbar {
+    position: absolute;
+    top: var(--space-3);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 15;
+    pointer-events: none;
+  }
+
+  .healing-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(139, 92, 246, 0.2);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+    border-radius: 20px;
+    color: #a78bfa;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .healing-divider {
+    opacity: 0.3;
+  }
+
+  .healing-tip {
+    font-weight: 400;
+    opacity: 0.8;
+    font-size: 10px;
   }
 </style>

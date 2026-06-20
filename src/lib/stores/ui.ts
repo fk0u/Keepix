@@ -5,6 +5,7 @@ export const showSettings = writable(false);
 export const showAbout = writable(false);
 export const showShortcuts = writable(false);
 export const showExport = writable(false);
+export const showHelp = writable(false);
 
 export const activeTheme = writable('resolve-dark');
 

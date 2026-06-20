@@ -16,7 +16,7 @@
   import { resetMediaStore, loadMediaItems, loadCategories, loadCategoryStats } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
   import type { Project } from '$lib/types';
-  import { t } from '$lib/i18n';
+  import { t, locale } from '$lib/i18n';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import AboutModal from '$lib/components/AboutModal.svelte';
   import { showSettings, showAbout } from '$lib/stores/ui';
@@ -49,7 +49,7 @@
         handleOpenFolder();
       } else if (detail === 'clear-image-cache') {
         import('$lib/services/image-cache').then(({ clearImageCache }) => {
-          clearImageCache().then(() => toast.success('Image Cache Cleared'));
+          clearImageCache().then(() => toast.success($t('home.toast.cache_cleared')));
         });
       }
     }
@@ -82,7 +82,7 @@
   async function handleDeleteProject(e: MouseEvent, projectId: string) {
     e.stopPropagation();
     await removeProject(projectId);
-    toast.info('Project removed');
+    toast.info($t('home.toast.project_removed'));
   }
 
   async function handleRescan(e: MouseEvent, project: Project) {
@@ -107,10 +107,10 @@
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     isDragging = false;
-    toast.info('Use the "New Workspace" button to select a folder');
+    toast.info($t('home.toast.use_new_workspace'));
   }
 
-  function formatDate(dateStr: string): string {
+  function formatDate(dateStr: string, activeLocale: string): string {
     try {
       const d = new Date(dateStr);
       const now = new Date();
@@ -119,12 +119,12 @@
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
 
-      if (diffMins < 1) return 'just now';
-      if (diffMins < 60) return `${diffMins}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays < 7) return `${diffDays}d ago`;
+      if (diffMins < 1) return $t('time.just_now');
+      if (diffMins < 60) return $t('time.m_ago', { val: diffMins.toString() });
+      if (diffHours < 24) return $t('time.h_ago', { val: diffHours.toString() });
+      if (diffDays < 7) return $t('time.d_ago', { val: diffDays.toString() });
 
-      return d.toLocaleDateString('en-US', {
+      return d.toLocaleDateString(activeLocale === 'id' ? 'id-ID' : 'en-US', {
         month: 'short',
         day: 'numeric',
         year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
@@ -240,7 +240,7 @@
 
     <!-- Getting Started Guide -->
     <div class="sidebar-section">
-      <div class="sidebar-section-title">Getting Started</div>
+      <div class="sidebar-section-title">{$t('guide.title')}</div>
       {#each guideSteps as step, idx}
         <button class="guide-step" class:expanded={expandedGuide === idx} onclick={() => toggleGuide(idx)}>
           <div class="guide-step-header">
@@ -273,13 +273,13 @@
 
     <!-- Sidebar Footer -->
     <div class="sidebar-footer">
-      <button class="footer-icon-btn" onclick={() => showSettings.set(true)} data-tooltip="Preferences">
+      <button class="footer-icon-btn" onclick={() => showSettings.set(true)} data-tooltip={$t('settings.preferences')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"></circle>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
         </svg>
       </button>
-      <button class="footer-icon-btn" onclick={() => showAbout.set(true)} data-tooltip="About Keepix">
+      <button class="footer-icon-btn" onclick={() => showAbout.set(true)} data-tooltip={$t('about.title')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="10"></circle>
           <line x1="12" y1="16" x2="12" y2="12"></line>
@@ -371,7 +371,7 @@
                 {/if}
                 <div class="project-item-count">
                   <span>{project.total_items}</span>
-                  <span class="count-label">items</span>
+                  <span class="count-label">{$t('home.project.items')}</span>
                 </div>
               </div>
 
@@ -383,7 +383,7 @@
                     <button
                       class="action-btn"
                       onclick={(e) => handleRescan(e, project)}
-                      data-tooltip="Re-scan"
+                      data-tooltip={$t('home.project.rescan')}
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <polyline points="23 4 23 10 17 10"/>
@@ -393,7 +393,7 @@
                     <button
                       class="action-btn danger"
                       onclick={(e) => handleDeleteProject(e, project.id)}
-                      data-tooltip="Remove"
+                      data-tooltip={$t('home.project.remove')}
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"/>
@@ -404,7 +404,7 @@
                 </div>
                 <p class="project-path truncate">{project.root_path}</p>
                 <div class="project-meta">
-                  <span class="meta-time">{formatDate(project.last_opened)}</span>
+                  <span class="meta-time">{formatDate(project.last_opened, $locale)}</span>
                 </div>
               </div>
             </div>

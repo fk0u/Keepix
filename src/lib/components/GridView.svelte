@@ -26,6 +26,26 @@
   // Track loaded image data URIs reactively
   let loadedImages = $state<Record<string, string>>({});
 
+  function formatDuration(seconds: number): string {
+    if (isNaN(seconds) || seconds === Infinity) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  }
+
+  function getVideoDurationText(item: MediaItem): string | null {
+    if (item.file_type !== 'video' || !item.exif_json) return null;
+    try {
+      const meta = JSON.parse(item.exif_json);
+      if (meta && typeof meta.duration === 'number') {
+        return formatDuration(meta.duration);
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   // Helper to check if a grid item is selected based on original selected index
   function isItemSelected(item: MediaItem | BurstGroup, selIndex: number): boolean {
     const selectedItem = originalItems[selIndex];
@@ -181,10 +201,17 @@
 
         <!-- Video indicator -->
         {#if displayItem.file_type === 'video'}
-          <div class="video-indicator">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
+          {@const durationText = getVideoDurationText(displayItem)}
+          <div class="video-indicator" class:has-duration={!!durationText} class:unsupported-video={displayItem.width === -1}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="5,3 19,12 5,21"/>
             </svg>
+            {#if durationText}
+              <span class="video-duration-text">{durationText}</span>
+            {/if}
+            {#if displayItem.width === -1}
+              <span class="video-unsupported-tag" title="Format tidak didukung di pratinjau langsung">⚠️ UNSUPPORTED</span>
+            {/if}
           </div>
         {/if}
       </div>
@@ -363,7 +390,7 @@
     position: absolute;
     bottom: var(--space-2);
     right: var(--space-2);
-    background: rgba(0, 0, 0, 0.6);
+    background: rgba(0, 0, 0, 0.75);
     border-radius: var(--radius-full);
     width: 20px;
     height: 20px;
@@ -371,5 +398,37 @@
     align-items: center;
     justify-content: center;
     z-index: 2;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all var(--transition-fast);
+    color: white;
+  }
+
+  .video-indicator.has-duration {
+    width: auto;
+    height: 18px;
+    border-radius: var(--radius-sm);
+    padding: 0 var(--space-2);
+    gap: var(--space-1);
+  }
+
+  .video-indicator.unsupported-video {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+  }
+
+  .video-duration-text {
+    font-size: 9px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .video-unsupported-tag {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #f87171;
   }
 </style>

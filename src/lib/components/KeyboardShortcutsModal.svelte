@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n';
+
   let {
     onClose,
   }: {
@@ -20,7 +22,7 @@
 >
   <div class="modal-content shortcuts-modal">
     <div class="modal-header">
-      <h2 class="modal-title">Keyboard Shortcuts</h2>
+      <h2 class="modal-title">{$t('shortcuts.title')}</h2>
       <button class="btn btn-ghost btn-icon" onclick={onClose}>
         <svg
           width="16"
@@ -38,106 +40,105 @@
 
     <div class="shortcuts-grid">
       <section class="shortcut-section">
-        <h3 class="section-label">Categorize</h3>
+        <h3 class="section-label">{$t('shortcuts.section.categorize')}</h3>
         <div class="shortcut-row">
           <kbd>1</kbd>
-          <span>Buang (Trash)</span>
+          <span>{$t('shortcuts.trash')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>2</kbd>
-          <span>Simpan (Best Shots)</span>
+          <span>{$t('shortcuts.best')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>3</kbd>
-          <span>Simpan Draft (Keep)</span>
+          <span>{$t('shortcuts.draft')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>4</kbd>
-          <span>Review</span>
+          <span>{$t('shortcuts.review')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>Delete</kbd>
-          <span>Move to Buang</span>
+          <span>{$t('shortcuts.move_trash')}</span>
         </div>
       </section>
 
       <section class="shortcut-section">
-        <h3 class="section-label">Navigate</h3>
+        <h3 class="section-label">{$t('shortcuts.section.navigate')}</h3>
         <div class="shortcut-row">
           <kbd>←</kbd> <kbd>→</kbd>
-          <span>Previous / Next</span>
+          <span>{$t('shortcuts.prev_next')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>↑</kbd> <kbd>↓</kbd>
-          <span>Previous / Next</span>
+          <span>{$t('shortcuts.prev_next')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>Space</kbd>
-          <span>Toggle Grid / Preview</span>
+          <span>{$t('shortcuts.toggle_view')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>Esc</kbd>
-          <span>Back to Grid</span>
+          <span>{$t('shortcuts.back_grid')}</span>
         </div>
       </section>
 
       <section class="shortcut-section">
-        <h3 class="section-label">Actions</h3>
+        <h3 class="section-label">{$t('shortcuts.section.actions')}</h3>
         <div class="shortcut-row">
           <kbd>Ctrl</kbd>+<kbd>Z</kbd>
-          <span>Undo</span>
+          <span>{$t('shortcuts.undo')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>I</kbd>
-          <span>Toggle Info Panel</span>
+          <span>{$t('shortcuts.toggle_info')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>?</kbd>
-          <span>Toggle Shortcuts</span>
+          <span>{$t('shortcuts.toggle_shortcuts')}</span>
         </div>
       </section>
 
       <section class="shortcut-section">
-        <h3 class="section-label">Ratings & Colors</h3>
+        <h3 class="section-label">{$t('shortcuts.section.ratings')}</h3>
         <div class="shortcut-row">
           <kbd>0</kbd> or <kbd>5</kbd>
-          <span>Star Rating</span>
+          <span>{$t('shortcuts.star_rating')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>6</kbd> – <kbd>9</kbd>
-          <span>Color Label (Red/Orange/Yellow/Green)</span>
+          <span>{$t('shortcuts.color_label')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>A</kbd>
-          <span>Toggle Auto-Advance</span>
+          <span>{$t('shortcuts.toggle_autoadvance')}</span>
         </div>
       </section>
 
       <section class="shortcut-section">
-        <h3 class="section-label">Compare & Diagnostics</h3>
+        <h3 class="section-label">{$t('shortcuts.section.diagnostics')}</h3>
         <div class="shortcut-row">
           <kbd>C</kbd>
-          <span>Cycle Compare Modes</span>
+          <span>{$t('shortcuts.cycle_compare')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>Z</kbd>
-          <span>Toggle Sync Zoom</span>
+          <span>{$t('shortcuts.sync_zoom')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>H</kbd>
-          <span>Toggle Live Histogram</span>
+          <span>{$t('shortcuts.toggle_histogram')}</span>
         </div>
         <div class="shortcut-row">
           <kbd>O</kbd>
-          <span>Cycle Overlays (Peaking/Zebra)</span>
+          <span>{$t('shortcuts.cycle_overlays')}</span>
         </div>
       </section>
     </div>
 
     <div class="modal-footer">
       <p class="footer-tip">
-        Pro tip: Categorize with <kbd>1</kbd>–<kbd>4</kbd> to auto-advance to the
-        next photo
+        {@html $t('shortcuts.footer_tip', {keys: '<kbd>1</kbd>–<kbd>4</kbd>'})}
       </p>
     </div>
   </div>

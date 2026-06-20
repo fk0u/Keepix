@@ -1,0 +1,20 @@
+KEEPIX - END USER LICENSE AGREEMENT (EULA) / PERJANJIAN LISENSI PENGGUNA AKHIR
+========================================================================
+
+INDONESIAN:
+Perjanjian Lisensi Pengguna Akhir ("Perjanjian") ini adalah perjanjian hukum antara Anda (baik individu atau entitas tunggal) dan Keepix. Dengan menginstal, menyalin, atau menggunakan aplikasi Keepix ("Perangkat Lunak"), Anda setuju untuk terikat oleh ketentuan Perjanjian ini.
+
+1. Pemberian Lisensi: Keepix memberikan kepada Anda lisensi non-eksklusif, tidak dapat dialihkan, untuk menginstal dan menggunakan Perangkat Lunak pada perangkat pribadi atau kerja Anda.
+2. Batasan: Anda tidak boleh merekayasa balik, mendekompilasi, atau membongkar Perangkat Lunak ini, kecuali dan hanya sejauh aktivitas tersebut secara tegas diizinkan oleh hukum yang berlaku.
+3. Hak Cipta: Seluruh hak kepemilikan dan hak cipta di dalam dan atas Perangkat Lunak (termasuk namun tidak terbatas pada gambar, foto, animasi, video, audio, teks, dan kode) dimiliki oleh Keepix Contributors.
+4. Batasan Tanggung Jawab: Perangkat Lunak ini disediakan "sebagaimana adanya" tanpa jaminan apa pun. Dalam keadaan apa pun Keepix tidak bertanggung jawab atas kerugian apa pun yang timbul dari penggunaan atau ketidakmampuan menggunakan Perangkat Lunak ini.
+
+------------------------------------------------------------------------
+
+ENGLISH:
+This End User License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity) and Keepix. By installing, copying, or otherwise using the Keepix application ("Software"), you agree to be bound by the terms of this Agreement.
+
+1. Grant of License: Keepix grants you a non-exclusive, non-transferable license to install and use the Software on your personal or work devices.
+2. Restrictions: You may not reverse engineer, decompile, or disassemble the Software, except and only to the extent that such activity is expressly permitted by applicable law.
+3. Copyright: All title and copyrights in and to the Software (including but not limited to any images, photographs, animations, video, audio, music, text, and code) are owned by Keepix Contributors.
+4. Disclaimer of Warranty: The Software is provided "as is" without warranty of any kind. In no event shall Keepix be liable for any damages arising out of the use or inability to use this Software.

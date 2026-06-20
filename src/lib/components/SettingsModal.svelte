@@ -155,7 +155,7 @@
       onClose();
     } catch (err) {
       console.error('Failed to save settings:', err);
-      toast.error('Failed to save settings');
+      toast.error($t('settings.toast.fail'));
     }
   }
 </script>
@@ -166,7 +166,7 @@
       
       <!-- HEADER -->
       <div class="modal-header">
-        <h2 id="settings-title">Preferences</h2>
+        <h2 id="settings-title">{$t('settings.preferences')}</h2>
         <button class="close-btn" onclick={onClose} aria-label="Close settings">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/>
@@ -181,16 +181,16 @@
         <!-- Tab navigation -->
         <div class="tab-sidebar">
           <button class="tab-btn" class:active={activeTab === 'general'} onclick={() => activeTab = 'general'}>
-            <span class="tab-icon">⚙️</span> General
+            <span class="tab-icon">⚙️</span> {$t('settings.tab.general')}
           </button>
           <button class="tab-btn" class:active={activeTab === 'performance'} onclick={() => activeTab = 'performance'}>
-            <span class="tab-icon">⚡</span> Performance
+            <span class="tab-icon">⚡</span> {$t('settings.tab.performance')}
           </button>
           <button class="tab-btn" class:active={activeTab === 'diagnostics'} onclick={() => activeTab = 'diagnostics'}>
-            <span class="tab-icon">📊</span> Diagnostics
+            <span class="tab-icon">📊</span> {$t('settings.tab.diagnostics')}
           </button>
           <button class="tab-btn" class:active={activeTab === 'theme'} onclick={() => activeTab = 'theme'}>
-            <span class="tab-icon">🎨</span> Themes
+            <span class="tab-icon">🎨</span> {$t('settings.tab.theme')}
           </button>
         </div>
 
@@ -211,13 +211,13 @@
               </div>
 
               <div class="setting-group">
-                <h3>Auto-Advance Delay</h3>
+                <h3>{$t('settings.autoadvance_delay')}</h3>
                 <div class="setting-row">
                   <div class="slider-container">
                     <input type="range" min="0" max="3000" step="250" bind:value={autoAdvanceDelay} />
-                    <span class="slider-value">{autoAdvanceDelay === 0 ? 'Instant' : `${autoAdvanceDelay} ms`}</span>
+                    <span class="slider-value">{autoAdvanceDelay === 0 ? $t('settings.autoadvance_delay.instant') : `${autoAdvanceDelay} ms`}</span>
                   </div>
-                  <p class="setting-help">Delay duration after assigning a category hotkey before automatically advancing to next image.</p>
+                  <p class="setting-help">{$t('settings.autoadvance_delay.help')}</p>
                 </div>
               </div>
             </div>
@@ -229,25 +229,25 @@
               <!-- HW DIAGNOSTICS CARD -->
               <div class="hw-card">
                 <div class="hw-card-header">
-                  <span class="pulse-dot"></span> Detected Hardware Specifications
+                  <span class="pulse-dot"></span> {$t('settings.hardware_specs')}
                 </div>
                 <div class="hw-spec-row">
-                  <span class="spec-label">CPU Cores</span>
-                  <span class="spec-val">{sysCores} Cores Available</span>
+                  <span class="spec-label">{$t('settings.cpu_cores')}</span>
+                  <span class="spec-val">{$t('settings.cpu_cores.val', {cores: sysCores.toString()})}</span>
                 </div>
                 <div class="hw-spec-row">
-                  <span class="spec-label">GPU Model</span>
+                  <span class="spec-label">{$t('settings.gpu_model')}</span>
                   <span class="spec-val truncate" title={gpuModel}>{gpuModel}</span>
                 </div>
                 <div class="hw-spec-row">
-                  <span class="spec-label">GPU Vendor</span>
+                  <span class="spec-label">{$t('settings.gpu_vendor')}</span>
                   <span class="spec-val truncate">{gpuVendor}</span>
                 </div>
               </div>
 
               <!-- Live CPU visualizer bar -->
               <div class="thread-visualizer">
-                <span class="visualizer-title">Live CPU Worker Thread Pool Load Monitor</span>
+                <span class="visualizer-title">{$t('settings.cpu_load_monitor')}</span>
                 <div class="threads-grid-visual">
                   {#each threadLoads as load, idx}
                     <div class="thread-visual-cell">
@@ -260,44 +260,44 @@
               </div>
 
               <div class="setting-group">
-                <h3>GPU Acceleration</h3>
+                <h3>{$t('settings.gpu_accel')}</h3>
                 <div class="setting-row inline-row">
                   <label class="switch-label" for="gpu-accel-toggle">
                     <input type="checkbox" id="gpu-accel-toggle" bind:checked={gpuAccel} />
-                    <span class="switch-text">Enable GPU WebGL hardware acceleration (filters, edge detection)</span>
+                    <span class="switch-text">{$t('settings.gpu_accel.help')}</span>
                   </label>
                 </div>
               </div>
 
               <div class="setting-group">
-                <h3>CPU Decoders / Threads</h3>
+                <h3>{$t('settings.cpu_decoders')}</h3>
                 <div class="setting-row">
                   <div class="slider-container">
                     <input type="range" min="2" max={Math.max(2, sysCores)} step="1" bind:value={cpuThreads} />
-                    <span class="slider-value">{cpuThreads} Cores</span>
+                    <span class="slider-value">{cpuThreads} {$t('settings.cpu_cores')}</span>
                   </div>
-                  <p class="setting-help">Number of parallel processor threads allocated for SIMD-accelerated background thumbnail resizing.</p>
+                  <p class="setting-help">{$t('settings.cpu_decoders.help')}</p>
                 </div>
               </div>
 
               <div class="setting-group-grid">
                 <div class="setting-group">
-                  <h3>Thread Allocation Priority</h3>
+                  <h3>{$t('settings.thread_priority')}</h3>
                   <div class="setting-row">
                     <select bind:value={threadPriority} class="setting-select">
-                      <option value="low">Low (Background Idle)</option>
-                      <option value="medium">Balanced (Normal)</option>
-                      <option value="high">High (Maximum Speed)</option>
+                      <option value="low">{$t('settings.thread_priority.low')}</option>
+                      <option value="medium">{$t('settings.thread_priority.medium')}</option>
+                      <option value="high">{$t('settings.thread_priority.high')}</option>
                     </select>
                   </div>
                 </div>
 
                 <div class="setting-group">
-                  <h3>Scheduler Mode</h3>
+                  <h3>{$t('settings.scheduler_mode')}</h3>
                   <div class="setting-row">
                     <select bind:value={allocMode} class="setting-select">
-                      <option value="dynamic">Dynamic Work Stealing</option>
-                      <option value="static">Static Equal Splitting</option>
+                      <option value="dynamic">{$t('settings.scheduler_mode.dynamic')}</option>
+                      <option value="static">{$t('settings.scheduler_mode.static')}</option>
                     </select>
                   </div>
                 </div>
@@ -311,7 +311,7 @@
                     <input type="range" id="cache-limit" min="100" max="2000" step="100" bind:value={cacheLimit} />
                     <span class="slider-value">{cacheLimit} MB</span>
                   </div>
-                  <p class="setting-help">{$t('settings.cache.info')}</p>
+                  <p class="setting-help">{$t('settings.cache_limit.help')}</p>
                 </div>
               </div>
             </div>
@@ -321,7 +321,7 @@
           {#if activeTab === 'diagnostics'}
             <div class="tab-panel animate-fade-in">
               <div class="setting-group">
-                <h3>Focus Peaking Overlay Color</h3>
+                <h3>{$t('settings.focus_peaking_color')}</h3>
                 <div class="setting-row color-selector-row">
                   {#each ['red', 'green', 'blue', 'yellow', 'cyan'] as color}
                     <button 
@@ -332,38 +332,38 @@
                       aria-label="Set peaking to {color}"
                     ></button>
                   {/each}
-                  <span class="selected-color-text">Active Color: {focusColor}</span>
+                  <span class="selected-color-text">{$t('settings.active_color', {color: focusColor})}</span>
                 </div>
               </div>
 
               <div class="setting-group">
-                <h3>Focus Peaking Opacity / Intensity</h3>
+                <h3>{$t('settings.focus_peaking_intensity')}</h3>
                 <div class="setting-row">
                   <div class="slider-container">
                     <input type="range" min="10" max="100" step="5" bind:value={focusIntensity} />
                     <span class="slider-value">{focusIntensity}%</span>
                   </div>
-                  <p class="setting-help">Overlay opacity of highlight indicators when peaking filter is applied.</p>
+                  <p class="setting-help">{$t('settings.focus_peaking_intensity.help')}</p>
                 </div>
               </div>
 
               <div class="setting-group">
-                <h3>Focus Peaking Threshold</h3>
+                <h3>{$t('settings.focus_peaking_threshold')}</h3>
                 <div class="setting-row">
                   <select bind:value={focusSensitivity} class="setting-select">
-                    <option value="low">Low (Fewer highlights)</option>
-                    <option value="medium">Medium (Standard)</option>
-                    <option value="high">High (Maximum sensitivity)</option>
+                    <option value="low">{$t('settings.focus_peaking_threshold.low')}</option>
+                    <option value="medium">{$t('settings.focus_peaking_threshold.medium')}</option>
+                    <option value="high">{$t('settings.focus_peaking_threshold.high')}</option>
                   </select>
                 </div>
               </div>
 
               <div class="setting-group">
-                <h3>RGB Histogram Channels</h3>
+                <h3>{$t('settings.rgb_histogram')}</h3>
                 <div class="setting-row">
                   <select bind:value={histogramMode} class="setting-select">
-                    <option value="all">Composite RGB (All Channels)</option>
-                    <option value="luminance">Luminance Channel Only</option>
+                    <option value="all">{$t('settings.rgb_histogram.all')}</option>
+                    <option value="luminance">{$t('settings.rgb_histogram.luminance')}</option>
                   </select>
                 </div>
               </div>
@@ -374,7 +374,7 @@
           {#if activeTab === 'theme'}
             <div class="tab-panel animate-fade-in">
               <div class="setting-group">
-                <h3>Interface Theme Layout</h3>
+                <h3>{$t('settings.interface_theme')}</h3>
                 <div class="themes-grid">
                   <button 
                     class="theme-card" 

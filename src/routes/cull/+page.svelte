@@ -27,6 +27,8 @@
   import SplitPane from '$lib/components/SplitPane.svelte';
   import EditPanel from '$lib/components/EditPanel.svelte';
   import { get } from 'svelte/store';
+  import { t } from '$lib/i18n';
+  import { startVideoProcessingQueue } from '$lib/services/video-processor';
 
   let showMetadata = $state(false);
   let exifData = $state<ExifData | null>(null);
@@ -56,6 +58,15 @@
     return () => {
       window.removeEventListener('settings-updated', loadSettings);
     };
+  });
+
+  // Background video processing queue (thumbnails / duration)
+  $effect(() => {
+    const items = $mediaItems;
+    const project = $currentProject;
+    if (items.length > 0 && project) {
+      startVideoProcessingQueue(items, project.id);
+    }
   });
 
   // ... (rest of logic up to UI) ...
@@ -223,8 +234,12 @@
         const catId = parseInt(e.key);
         setCategoryForItem(item.id, projectId, catId);
         flashCategory(catId);
-        const name = getCategoryName(catId);
-        toast.success(`${name}`, 1500);
+        const name = catId === 1 ? $t('ref.trash') :
+                     catId === 2 ? $t('ref.best') :
+                     catId === 3 ? $t('ref.draft') :
+                     catId === 4 ? $t('ref.review') :
+                     getCategoryName(catId);
+        toast.success(name, 1500);
         if ($autoAdvance) {
           navigateNext();
         }
@@ -249,17 +264,6 @@
         toggleViewMode();
         break;
 
-      case 'c':
-      case 'C':
-        if ($viewMode === 'preview') {
-          compareMode.update(m => {
-            if (m === 'single') return '2-up';
-            if (m === '2-up') return '4-up';
-            return 'single';
-          });
-          toast.info(`Compare Mode: ${$compareMode.toUpperCase()}`);
-        }
-        break;
 
       // Undo & Sync Zoom Toggle
       case 'z':
@@ -269,7 +273,7 @@
           handleUndo();
         } else if ($viewMode === 'preview' && $compareMode !== 'single') {
           syncZoom.update(sz => !sz);
-          toast.info($syncZoom ? 'Zoom linked' : 'Zoom unlinked');
+          toast.info($syncZoom ? $t('cull.toast.zoom_linked') : $t('cull.toast.zoom_unlinked'));
         }
         break;
 
@@ -278,7 +282,7 @@
         if (item && projectId) {
           setCategoryForItem(item.id, projectId, 1);
           flashCategory(1);
-          toast.success('Buang', 1500);
+          toast.success($t('ref.trash'), 1500);
           if ($autoAdvance) {
             navigateNext();
           }
@@ -291,7 +295,7 @@
         if (item) {
           const rating = parseInt(e.key);
           setStarRatingForItem(item.id, rating);
-          toast.success(`Rating: ${rating} Stars`, 1500);
+          toast.success($t('cull.toast.rating', { rating: rating.toString() }), 1500);
           if ($autoAdvance) {
             navigateNext();
           }
@@ -305,14 +309,14 @@
       case '9': {
         if (!item) return;
         let color: string | null = null;
-        let labelName = 'None';
-        if (e.key === '6') { color = 'red'; labelName = 'Red'; }
-        else if (e.key === '7') { color = 'orange'; labelName = 'Orange'; }
-        else if (e.key === '8') { color = 'yellow'; labelName = 'Yellow'; }
-        else if (e.key === '9') { color = 'green'; labelName = 'Green'; }
+        let labelName = $t('color.none');
+        if (e.key === '6') { color = 'red'; labelName = $t('color.red'); }
+        else if (e.key === '7') { color = 'orange'; labelName = $t('color.orange'); }
+        else if (e.key === '8') { color = 'yellow'; labelName = $t('color.yellow'); }
+        else if (e.key === '9') { color = 'green'; labelName = $t('color.green'); }
 
         setColorLabelForItem(item.id, color);
-        toast.success(`Label: ${labelName}`, 1500);
+        toast.success($t('cull.toast.label', { label: labelName }), 1500);
         if ($autoAdvance) {
           navigateNext();
         }
@@ -323,7 +327,7 @@
       case 'h':
       case 'H':
         showHistogram.update(h => !h);
-        toast.info($showHistogram ? 'Histogram visible' : 'Histogram hidden');
+        toast.info($showHistogram ? $t('cull.toast.histogram_visible') : $t('cull.toast.histogram_hidden'));
         break;
 
       // Cycle diagnostics overlay
@@ -334,14 +338,14 @@
           if (mode === 'peaking') return 'zebra';
           return 'none';
         });
-        toast.info(`Diagnostics: ${$diagnosticsMode.toUpperCase()}`);
+        toast.info($t('cull.toast.diagnostics', { mode: $diagnosticsMode.toUpperCase() }));
         break;
 
       // Toggle auto-advance
       case 'a':
       case 'A':
         autoAdvance.update(a => !a);
-        toast.info($autoAdvance ? 'Auto-Advance ON' : 'Auto-Advance OFF');
+        toast.info($autoAdvance ? $t('cull.toast.autoadvance_on') : $t('cull.toast.autoadvance_off'));
         break;
 
       // Show shortcuts
@@ -352,6 +356,39 @@
       // Toggle metadata panel
       case 'i':
         showMetadata = !showMetadata;
+        break;
+
+      // Before/After comparison toggle
+      case 'b':
+      case 'B':
+        if ($viewMode === 'preview' && $currentItem?.file_type === 'photo') {
+          window.dispatchEvent(new CustomEvent('keepix-edit', {
+            detail: { type: 'before-after-toggle' },
+          }));
+        }
+        break;
+
+      // Copy/Paste adjustments
+      case 'c':
+      case 'C':
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('keepix-action', { detail: 'copy-adjustments' }));
+        } else if ($viewMode === 'preview') {
+          compareMode.update(m => {
+            if (m === 'single') return '2-up';
+            if (m === '2-up') return '4-up';
+            return 'single';
+          });
+          toast.info($t('cull.toast.compare_mode', { mode: $compareMode.toUpperCase() }));
+        }
+        break;
+      case 'v':
+      case 'V':
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('keepix-action', { detail: 'paste-adjustments' }));
+        }
         break;
 
       // Go home
@@ -370,14 +407,14 @@
     try {
       const result = await bridge.undoLastAction($currentProject.id);
       if (result) {
-        toast.info('Undone');
+        toast.info($t('cull.toast.undone'));
         await loadMediaItems($currentProject.id);
         await loadCategoryStats($currentProject.id);
       } else {
-        toast.info('Nothing to undo');
+        toast.info($t('cull.toast.nothing_undo'));
       }
     } catch {
-      toast.error('Undo failed');
+      toast.error($t('cull.toast.undo_failed'));
     }
   }
 
@@ -398,7 +435,7 @@
       } else {
         compareMode.set('4-up');
       }
-      toast.success(`Comparing ${burstItems.length} burst photos`);
+      toast.success($t('cull.toast.comparing_burst', { count: burstItems.length.toString() }));
     } else {
       compareMode.set('single');
     }
@@ -431,7 +468,11 @@
 
         {#if categoryFlash}
           <div class="category-flash" style="background-color: {getCategoryColor(categoryFlash)}">
-            <span>{getCategoryName(categoryFlash)}</span>
+            <span>{categoryFlash === 1 ? $t('ref.trash') :
+                   categoryFlash === 2 ? $t('ref.best') :
+                   categoryFlash === 3 ? $t('ref.draft') :
+                   categoryFlash === 4 ? $t('ref.review') :
+                   getCategoryName(categoryFlash)}</span>
           </div>
         {/if}
 
@@ -460,12 +501,12 @@
 
             {#if !$isLoading && $mediaItems.length === 0}
               <div class="empty-media">
-                <p>No media items found</p>
+                <p>{$t('cull.empty')}</p>
                 <p class="empty-sub">
                   {#if $categoryFilter || $uncategorizedOnly}
-                    Try clearing filters
+                    {$t('cull.empty.clear_filters')}
                   {:else}
-                    Open a folder to start culling
+                    {$t('cull.empty.open_folder')}
                   {/if}
                 </p>
               </div>
@@ -486,7 +527,7 @@
           <span class="status-item">
             {$selectedIndex + 1} / {$mediaItems.length}
             {#if $totalItems > $mediaItems.length}
-              <span class="text-dim">(of {$totalItems})</span>
+              <span class="text-dim">({$t('cull.status.of', {total: $totalItems.toString()})})</span>
             {/if}
           </span>
           {#if $currentItem}
@@ -494,12 +535,16 @@
             <span class="status-item">{formatFileSize($currentItem.file_size)}</span>
             {#if $currentItem.category_id}
               <span class="status-category" style="color: {getCategoryColor($currentItem.category_id)}">
-                {getCategoryName($currentItem.category_id)}
+                {$currentItem.category_id === 1 ? $t('ref.trash') :
+                 $currentItem.category_id === 2 ? $t('ref.best') :
+                 $currentItem.category_id === 3 ? $t('ref.draft') :
+                 $currentItem.category_id === 4 ? $t('ref.review') :
+                 getCategoryName($currentItem.category_id)}
               </span>
             {/if}
           {/if}
           <span class="status-item status-right">
-            <kbd>?</kbd> Shortcuts
+            <kbd>?</kbd> {$t('cull.status.shortcuts')}
           </span>
         </div>
       </div>

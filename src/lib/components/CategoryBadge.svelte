@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { getCategoryName, getCategoryColor } from '$lib/types';
+  import { getCategoryColor } from '$lib/types';
+  import { t } from '$lib/i18n';
 
   let {
     categoryId,
@@ -9,7 +10,14 @@
     compact?: boolean;
   } = $props();
 
-  const name = $derived(getCategoryName(categoryId));
+  const name = $derived.by(() => {
+    if (categoryId === 1) return $t('ref.trash');
+    if (categoryId === 2) return $t('ref.best');
+    if (categoryId === 3) return $t('ref.draft');
+    if (categoryId === 4) return $t('ref.review');
+    return $t('sidebar.uncategorized');
+  });
+
   const color = $derived(getCategoryColor(categoryId));
 
   const badgeClass = $derived((() => {

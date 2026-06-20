@@ -13,6 +13,13 @@
     onClose: () => void;
   } = $props();
 
+  function formatDuration(seconds: number | null | undefined): string | null {
+    if (seconds == null || isNaN(seconds) || seconds === Infinity) return null;
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  }
+
   function getBrandLogoText(make: string): string {
     const m = make.toLowerCase();
     if (m.includes('sony')) return 'SONY';
@@ -110,7 +117,7 @@
 
 <aside class="metadata-panel">
   <div class="panel-header">
-    <h3 class="panel-title">Info</h3>
+    <h3 class="panel-title">{$t('metadata.title')}</h3>
     <button class="btn btn-ghost btn-icon" onclick={onClose}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <line x1="18" y1="6" x2="6" y2="18"/>
@@ -123,24 +130,30 @@
     <div class="panel-body">
       <!-- File info -->
       <section class="meta-section">
-        <h4 class="meta-section-title">File</h4>
+        <h4 class="meta-section-title">{$t('metadata.file')}</h4>
         <div class="meta-grid">
           <div class="meta-row">
-            <span class="meta-label">Name</span>
+            <span class="meta-label">{$t('metadata.filename')}</span>
             <span class="meta-value truncate" title={item.file_name}>{item.file_name}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Size</span>
+            <span class="meta-label">{$t('metadata.filesize')}</span>
             <span class="meta-value">{formatFileSize(item.file_size)}</span>
           </div>
           <div class="meta-row">
-            <span class="meta-label">Type</span>
+            <span class="meta-label">{$t('metadata.filetype')}</span>
             <span class="meta-value">{exifData?.file_format ?? item.file_type}</span>
           </div>
-          {#if exifData?.width && exifData?.height}
+          {#if (exifData?.width && exifData.width > 0) || (item.width && item.width > 0)}
             <div class="meta-row">
-              <span class="meta-label">Dimensions</span>
-              <span class="meta-value">{exifData.width} × {exifData.height}</span>
+              <span class="meta-label">{$t('metadata.dimensions')}</span>
+              <span class="meta-value">{exifData?.width ?? item.width} × {exifData?.height ?? item.height}</span>
+            </div>
+          {/if}
+          {#if exifData?.duration && exifData.duration > 0}
+            <div class="meta-row">
+              <span class="meta-label">{$t('metadata.duration')}</span>
+              <span class="meta-value">{formatDuration(exifData.duration)}</span>
             </div>
           {/if}
         </div>
@@ -150,7 +163,7 @@
         <!-- Equipment Card Section -->
         {#if exifData.camera_model || exifData.lens_model}
           <section class="meta-section camera-section">
-            <h4 class="meta-section-title">Equipment</h4>
+            <h4 class="meta-section-title">{$t('metadata.equipment')}</h4>
             
             {#if exifData.camera_make}
               {@render renderBrandLogo(exifData.camera_make)}
@@ -172,7 +185,7 @@
                     </svg>
                   </div>
                   <div class="equip-details">
-                    <span class="equip-label">Body</span>
+                    <span class="equip-label">{$t('metadata.body')}</span>
                     <span class="equip-name truncate" title={exifData.camera_model}>{exifData.camera_model}</span>
                   </div>
                 </div>
@@ -193,7 +206,7 @@
                     </svg>
                   </div>
                   <div class="equip-details">
-                    <span class="equip-label">Lens</span>
+                    <span class="equip-label">{$t('metadata.lens')}</span>
                     <span class="equip-name truncate" title={exifData.lens_model}>{exifData.lens_model}</span>
                   </div>
                 </div>
@@ -205,7 +218,7 @@
         <!-- Exposure Parameters -->
         {#if exifData.aperture || exifData.shutter_speed || exifData.iso}
           <section class="meta-section">
-            <h4 class="meta-section-title">Exposure</h4>
+            <h4 class="meta-section-title">{$t('metadata.exposure')}</h4>
 
             <div class="exposure-strip">
               {#if exifData.focal_length}
@@ -225,31 +238,31 @@
             <div class="meta-grid">
               {#if exifData.exposure_compensation}
                 <div class="meta-row">
-                  <span class="meta-label">Exp Comp</span>
+                  <span class="meta-label">{$t('metadata.exp_comp')}</span>
                   <span class="meta-value">{exifData.exposure_compensation}</span>
                 </div>
               {/if}
               {#if getCalculatedEV(exifData.aperture, exifData.shutter_speed, exifData.iso)}
                 <div class="meta-row">
-                  <span class="meta-label">Calculated EV</span>
+                  <span class="meta-label">{$t('metadata.calc_ev')}</span>
                   <span class="meta-value ev-val">{getCalculatedEV(exifData.aperture, exifData.shutter_speed, exifData.iso)}</span>
                 </div>
               {/if}
               {#if exifData.metering_mode}
                 <div class="meta-row">
-                  <span class="meta-label">Metering</span>
+                  <span class="meta-label">{$t('metadata.metering')}</span>
                   <span class="meta-value">{exifData.metering_mode}</span>
                 </div>
               {/if}
               {#if exifData.white_balance}
                 <div class="meta-row">
-                  <span class="meta-label">White Balance</span>
+                  <span class="meta-label">{$t('metadata.wb')}</span>
                   <span class="meta-value">{exifData.white_balance}</span>
                 </div>
               {/if}
               {#if exifData.flash}
                 <div class="meta-row">
-                  <span class="meta-label">Flash</span>
+                  <span class="meta-label">{$t('metadata.flash')}</span>
                   <span class="meta-value">{exifData.flash}</span>
                 </div>
               {/if}
@@ -260,17 +273,17 @@
         <!-- Date & Software details -->
         {#if exifData.date_taken || exifData.software}
           <section class="meta-section">
-            <h4 class="meta-section-title">Creation</h4>
+            <h4 class="meta-section-title">{$t('metadata.creation')}</h4>
             <div class="meta-grid">
               {#if exifData.date_taken}
                 <div class="meta-row">
-                  <span class="meta-label">Date Taken</span>
+                  <span class="meta-label">{$t('metadata.date_taken')}</span>
                   <span class="meta-value">{exifData.date_taken}</span>
                 </div>
               {/if}
               {#if exifData.software}
                 <div class="meta-row">
-                  <span class="meta-label">Software</span>
+                  <span class="meta-label">{$t('metadata.software')}</span>
                   <span class="meta-value truncate" title={exifData.software}>{exifData.software}</span>
                 </div>
               {/if}
@@ -281,19 +294,19 @@
         <!-- GPS location details -->
         {#if exifData.gps_latitude !== null && exifData.gps_longitude !== null}
           <section class="meta-section">
-            <h4 class="meta-section-title">Location Coordinates</h4>
+            <h4 class="meta-section-title">{$t('metadata.location')}</h4>
             <div class="meta-grid">
               <div class="meta-row">
-                <span class="meta-label">Latitude</span>
+                <span class="meta-label">{$t('metadata.latitude')}</span>
                 <span class="meta-value">{exifData.gps_latitude?.toFixed(6)}°</span>
               </div>
               <div class="meta-row">
-                <span class="meta-label">Longitude</span>
+                <span class="meta-label">{$t('metadata.longitude')}</span>
                 <span class="meta-value">{exifData.gps_longitude?.toFixed(6)}°</span>
               </div>
               {#if exifData.gps_altitude}
                 <div class="meta-row">
-                  <span class="meta-label">Altitude</span>
+                  <span class="meta-label">{$t('metadata.altitude')}</span>
                   <span class="meta-value">{exifData.gps_altitude.toFixed(1)}m</span>
                 </div>
               {/if}
@@ -304,7 +317,7 @@
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <span class="map-icon">📍</span> Open in Google Maps
+                  <span class="map-icon">📍</span> {$t('metadata.open_maps')}
                 </a>
               </div>
             </div>
@@ -314,7 +327,7 @@
     </div>
   {:else}
     <div class="panel-empty">
-      <p>Select an item to view info</p>
+      <p>{$t('metadata.empty')}</p>
     </div>
   {/if}
 </aside>

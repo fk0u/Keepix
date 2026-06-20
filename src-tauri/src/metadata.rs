@@ -41,6 +41,10 @@ pub struct ExifData {
     // File info (set by caller)
     pub file_size: Option<i64>,
     pub file_format: Option<String>,
+
+    // Video info
+    pub duration: Option<f64>,
+    pub unsupported: Option<bool>,
 }
 
 /// Read EXIF data from an image file

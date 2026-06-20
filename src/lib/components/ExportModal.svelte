@@ -5,6 +5,7 @@
   import { toast } from '$lib/stores/toast';
   import * as bridge from '$lib/services/tauri-bridge';
   import type { ExportProgress } from '$lib/types';
+  import { t } from '$lib/i18n';
 
   let {
     onClose,
@@ -44,18 +45,18 @@
       }
     } catch (err) {
       console.error(err);
-      toast.error('Failed to pick folder');
+      toast.error($t('export.toast.pick_folder_fail'));
     }
   }
 
   async function handleStartExport() {
     if (!targetFolder.trim()) {
-      toast.error('Please select a target folder');
+      toast.error($t('export.toast.select_target'));
       return;
     }
 
     if (selectedCategories.length === 0 && !exportUncategorized) {
-      toast.error('Please select at least one category to export');
+      toast.error($t('export.toast.select_category'));
       return;
     }
 
@@ -76,7 +77,7 @@
         progress = event;
         if (event.phase === 'complete') {
           isExporting = false;
-          toast.success('Export completed successfully!');
+          toast.success($t('export.toast.success'));
           if ($currentProject) {
             loadCategoryStats($currentProject.id);
           }
@@ -99,7 +100,7 @@
 
       if (count === 0) {
         isExporting = false;
-        toast.info('No files match the selected categories.');
+        toast.info($t('export.toast.no_match'));
         if (unlistenExport) {
           unlistenExport();
           unlistenExport = null;
@@ -109,7 +110,7 @@
       isExporting = false;
       progress = null;
       console.error(err);
-      toast.error('Export failed: ' + err);
+      toast.error($t('export.toast.fail', { err: String(err) }));
       if (unlistenExport) {
         unlistenExport();
         unlistenExport = null;
@@ -135,7 +136,7 @@
 <div class="modal-overlay" onclick={handleOverlayClick} role="dialog" aria-labelledby="export-title">
   <div class="modal-content export-modal glass-card">
     <div class="modal-header">
-      <h2 id="export-title" class="modal-title">Export Culled Media</h2>
+      <h2 id="export-title" class="modal-title">{$t('export.title')}</h2>
       <button class="btn btn-ghost btn-icon close-btn" onclick={onClose} disabled={isExporting} aria-label="Close export dialog">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"/>
@@ -148,24 +149,24 @@
       <div class="modal-body">
         <!-- Folder picker -->
         <div class="form-group">
-          <label class="form-label" for="target-dir-input">Target Destination</label>
+          <label class="form-label" for="target-dir-input">{$t('export.destination')}</label>
           <div class="folder-picker-row">
             <input
               id="target-dir-input"
               type="text"
               bind:value={targetFolder}
               class="form-input"
-              placeholder="Select destination folder"
+              placeholder={$t('export.placeholder')}
             />
             <button class="btn btn-secondary" onclick={handleSelectFolder}>
-              Browse...
+              {$t('export.browse')}
             </button>
           </div>
         </div>
 
         <!-- Categories filters -->
         <div class="form-group">
-          <span class="form-label">Export Categories</span>
+          <span class="form-label">{$t('export.categories')}</span>
           <div class="categories-checkbox-grid">
             {#each $categories as cat}
               <button
@@ -174,7 +175,13 @@
                 onclick={() => toggleCategory(cat.id)}
               >
                 <span class="chip-dot" style="background: {cat.color}"></span>
-                <span class="chip-label">{cat.name}</span>
+                <span class="chip-label">
+                  {cat.id === 1 ? $t('ref.trash') :
+                   cat.id === 2 ? $t('ref.best') :
+                   cat.id === 3 ? $t('ref.draft') :
+                   cat.id === 4 ? $t('ref.review') :
+                   cat.name}
+                </span>
               </button>
             {/each}
             <button
@@ -183,7 +190,7 @@
               onclick={() => exportUncategorized = !exportUncategorized}
             >
               <span class="chip-dot" style="background: var(--text-tertiary); opacity: 0.5;"></span>
-              <span class="chip-label">Uncategorized</span>
+              <span class="chip-label">{$t('sidebar.uncategorized')}</span>
             </button>
           </div>
         </div>
@@ -191,22 +198,22 @@
         <div class="export-settings-row">
           <!-- Action options -->
           <div class="form-group flex-1">
-            <label class="form-label" for="action-select">Export Action</label>
+            <label class="form-label" for="action-select">{$t('export.action')}</label>
             <select id="action-select" class="form-select" bind:value={actionType}>
-              <option value="copy">Copy files (Safest)</option>
-              <option value="move">Move files (Warning: Deletes source!)</option>
-              <option value="list">Generate file paths list (.txt only)</option>
+              <option value="copy">{$t('export.action.copy')}</option>
+              <option value="move">{$t('export.action.move')}</option>
+              <option value="list">{$t('export.action.list')}</option>
             </select>
           </div>
 
           <!-- Conflict resolution -->
           {#if actionType !== 'list'}
             <div class="form-group flex-1">
-              <label class="form-label" for="conflict-select">If File Exists</label>
+              <label class="form-label" for="conflict-select">{$t('export.if_exists')}</label>
               <select id="conflict-select" class="form-select" bind:value={conflictBehavior}>
-                <option value="rename">Rename automatically (Save both)</option>
-                <option value="overwrite">Overwrite existing</option>
-                <option value="skip">Skip files</option>
+                <option value="rename">{$t('export.if_exists.rename')}</option>
+                <option value="overwrite">{$t('export.if_exists.overwrite')}</option>
+                <option value="skip">{$t('export.if_exists.skip')}</option>
               </select>
             </div>
           {/if}
@@ -214,9 +221,9 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-ghost" onclick={onClose}>Cancel</button>
+        <button class="btn btn-ghost" onclick={onClose}>{$t('settings.cancel')}</button>
         <button class="btn btn-primary start-export-btn" onclick={handleStartExport}>
-          Start Export
+          {$t('export.btn.start')}
         </button>
       </div>
     {:else}
@@ -225,9 +232,9 @@
         <div class="progress-info">
           <span class="progress-status">
             {#if progress?.phase === 'complete'}
-              ✨ Export Complete!
+              {$t('export.status.complete')}
             {:else}
-              ⚙️ Exporting files...
+              {$t('export.status.exporting')}
             {/if}
           </span>
           {#if progress && progress.total > 0}
@@ -254,7 +261,7 @@
         {#if progress?.phase === 'complete'}
           <div class="modal-footer" style="padding-top: var(--space-4); margin-top: var(--space-4); border-top: 1px solid var(--border-subtle)">
             <button class="btn btn-primary w-full" style="width: 100%;" onclick={onClose}>
-              Close Dialog
+              {$t('export.btn.close')}
             </button>
           </div>
         {/if}

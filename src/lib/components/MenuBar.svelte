@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { showSettings, showAbout, showShortcuts, showExport } from '$lib/stores/ui';
+  import { showSettings, showAbout, showShortcuts, showExport, showHelp } from '$lib/stores/ui';
   import { currentProject } from '$lib/stores/project';
   import { get } from 'svelte/store';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import { t, locale } from '$lib/i18n';
 
   let activeMenu = $state<string | null>(null);
   let menuContainer = $state<HTMLDivElement>();
@@ -48,6 +49,10 @@
     }
     if (actionName === 'open-export') {
       showExport.set(true);
+      return;
+    }
+    if (actionName === 'open-help') {
+      showHelp.set(true);
       return;
     }
     if (actionName === 'go-home') {
@@ -133,25 +138,25 @@
         onclick={() => toggleMenu('File')} 
         onmouseover={() => handleMouseOver('File')}
       >
-        File
+        {$t('menu.file')}
       </button>
       {#if activeMenu === 'File'}
         <div class="menu-dropdown">
           <button class="dropdown-item" onclick={() => triggerAction('new-workspace')}>
-            <span class="item-text">New Workspace...</span>
+            <span class="item-text">{$t('menu.file.new')}</span>
             <span class="item-shortcut">Ctrl+N</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('rescan-project')} disabled={!$currentProject}>
-            <span class="item-text">Re-scan Workspace</span>
+            <span class="item-text">{$t('menu.file.rescan')}</span>
             <span class="item-shortcut">Ctrl+R</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('open-export')} disabled={!$currentProject}>
-            <span class="item-text">Export Selection...</span>
+            <span class="item-text">{$t('menu.file.export')}</span>
             <span class="item-shortcut">Ctrl+E</span>
           </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item danger" onclick={() => triggerAction('exit-app')}>
-            <span class="item-text">Exit Application</span>
+            <span class="item-text">{$t('menu.file.exit')}</span>
             <span class="item-shortcut">Alt+F4</span>
           </button>
         </div>
@@ -166,21 +171,21 @@
         onclick={() => toggleMenu('Edit')} 
         onmouseover={() => handleMouseOver('Edit')}
       >
-        Edit
+        {$t('menu.edit')}
       </button>
       {#if activeMenu === 'Edit'}
         <div class="menu-dropdown">
           <button class="dropdown-item" onclick={() => triggerAction('undo')} disabled={!$currentProject}>
-            <span class="item-text">Undo Last Action</span>
+            <span class="item-text">{$t('menu.edit.undo')}</span>
             <span class="item-shortcut">Ctrl+Z</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('reset-adjustments')} disabled={!$currentProject}>
-            <span class="item-text">Reset Adjustments</span>
+            <span class="item-text">{$t('menu.edit.reset')}</span>
             <span class="item-shortcut">Alt+R</span>
           </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item" onclick={() => triggerAction('open-settings')}>
-            <span class="item-text">Settings...</span>
+            <span class="item-text">{$t('menu.edit.settings')}</span>
             <span class="item-shortcut">Ctrl+,</span>
           </button>
         </div>
@@ -195,42 +200,42 @@
         onclick={() => toggleMenu('View')} 
         onmouseover={() => handleMouseOver('View')}
       >
-        View
+        {$t('menu.view')}
       </button>
       {#if activeMenu === 'View'}
         <div class="menu-dropdown">
           <button class="dropdown-item" onclick={() => triggerAction('view-grid')}>
-            <span class="item-text">Grid View</span>
+            <span class="item-text">{$t('menu.view.grid')}</span>
             <span class="item-shortcut">Space</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('view-preview')}>
-            <span class="item-text">Preview View</span>
+            <span class="item-text">{$t('menu.view.preview')}</span>
             <span class="item-shortcut">Space</span>
           </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item" onclick={() => triggerAction('compare-single')}>
-            <span class="item-text">Compare: Single Mode</span>
+            <span class="item-text">{$t('menu.view.compare_single')}</span>
             <span class="item-shortcut">C</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('compare-2up')}>
-            <span class="item-text">Compare: 2-Up</span>
+            <span class="item-text">{$t('menu.view.compare_2up')}</span>
             <span class="item-shortcut">C</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('compare-4up')}>
-            <span class="item-text">Compare: 4-Up</span>
+            <span class="item-text">{$t('menu.view.compare_4up')}</span>
             <span class="item-shortcut">C</span>
           </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item" onclick={() => triggerAction('toggle-metadata')}>
-            <span class="item-text">Toggle Info Panel</span>
+            <span class="item-text">{$t('menu.view.info')}</span>
             <span class="item-shortcut">I</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('toggle-histogram')}>
-            <span class="item-text">Toggle Histogram</span>
+            <span class="item-text">{$t('menu.view.histogram')}</span>
             <span class="item-shortcut">H</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('toggle-overlay')}>
-            <span class="item-text">Cycle Overlays</span>
+            <span class="item-text">{$t('menu.view.overlays')}</span>
             <span class="item-shortcut">O</span>
           </button>
         </div>
@@ -245,16 +250,16 @@
         onclick={() => toggleMenu('Workspace')} 
         onmouseover={() => handleMouseOver('Workspace')}
       >
-        Workspace
+        {$t('menu.workspace')}
       </button>
       {#if activeMenu === 'Workspace'}
         <div class="menu-dropdown">
           <button class="dropdown-item" onclick={() => triggerAction('go-home')}>
-            <span class="item-text">Go to Homepage</span>
+            <span class="item-text">{$t('menu.workspace.home')}</span>
             <span class="item-shortcut">Esc</span>
           </button>
           <button class="dropdown-item" onclick={() => triggerAction('clear-image-cache')}>
-            <span class="item-text">Clear Caching Previews</span>
+            <span class="item-text">{$t('menu.workspace.clear_cache')}</span>
           </button>
         </div>
       {/if}
@@ -268,17 +273,21 @@
         onclick={() => toggleMenu('Help')} 
         onmouseover={() => handleMouseOver('Help')}
       >
-        Help
+        {$t('menu.help')}
       </button>
       {#if activeMenu === 'Help'}
         <div class="menu-dropdown">
           <button class="dropdown-item" onclick={() => triggerAction('open-shortcuts')}>
-            <span class="item-text">Keyboard Shortcuts Reference</span>
+            <span class="item-text">{$t('menu.help.shortcuts')}</span>
             <span class="item-shortcut">?</span>
+          </button>
+          <button class="dropdown-item" onclick={() => triggerAction('open-help')}>
+            <span class="item-text">{$t('menu.help.docs')}</span>
+            <span class="item-shortcut">F1</span>
           </button>
           <div class="dropdown-divider"></div>
           <button class="dropdown-item" onclick={() => triggerAction('open-about')}>
-            <span class="item-text">About Keepix by KOU...</span>
+            <span class="item-text">{$t('menu.help.about')}</span>
           </button>
         </div>
       {/if}
@@ -291,21 +300,21 @@
     <div class="hardware-indicators">
       <span class="hw-badge cpu-badge">
         <span class="hw-dot green"></span>
-        CPU: {cpuThreads} Cores
+        {$t('menu.status.cpu', {cores: cpuThreads.toString()})}
       </span>
       <span class="hw-badge gpu-badge" title={gpuRenderer}>
         <span class="hw-dot green"></span>
-        GPU: {gpuRenderer.length > 25 ? gpuRenderer.substring(0, 22) + '...' : gpuRenderer}
+        {$t('menu.status.gpu', {gpu: gpuRenderer.length > 25 ? gpuRenderer.substring(0, 22) + '...' : gpuRenderer})}
       </span>
     </div>
     <div class="divider-v"></div>
     {#if $currentProject}
       <span class="status-project-indicator">
-        Active Workspace: <strong class="project-name-text">{$currentProject.name}</strong>
+        {@html $t('menu.status.active_workspace', {name: `<strong class="project-name-text">${$currentProject.name}</strong>`})}
       </span>
     {:else}
       <span class="status-project-indicator idle">
-        No active project
+        {$t('menu.status.no_project')}
       </span>
     {/if}
   </div>
