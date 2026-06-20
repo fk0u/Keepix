@@ -11,6 +11,7 @@ const GRID_THUMB_SIZE: u32 = 300;
 const PREVIEW_THUMB_SIZE: u32 = 1200;
 
 /// Result type for thumbnail operations
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ThumbnailResult {
     pub media_id: String,

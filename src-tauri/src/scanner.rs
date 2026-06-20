@@ -24,6 +24,7 @@ pub struct ScannedFile {
 }
 
 /// Progress information during scanning
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub struct ScanProgress {
     pub total_found: usize,
@@ -104,6 +105,7 @@ pub fn get_thumbnail_dir(project_root: &Path) -> PathBuf {
 }
 
 /// Determine file type from extension
+#[allow(dead_code)]
 pub fn get_file_type(path: &Path) -> Option<&'static str> {
     path.extension()
         .and_then(|e| e.to_str())

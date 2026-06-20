@@ -439,20 +439,24 @@
 
   let activeEditsList = $derived.by(() => {
     const list: { name: string; value: string }[] = [];
+    const targetAdjustments = isHoveringPreset && originalAdjustmentsBeforeHover 
+      ? originalAdjustmentsBeforeHover 
+      : adjustments;
+
     for (const key of Object.keys(DEFAULT_ADJUSTMENTS) as Array<keyof Adjustments>) {
-      if (adjustments[key] !== DEFAULT_ADJUSTMENTS[key]) {
+      if (targetAdjustments[key] !== DEFAULT_ADJUSTMENTS[key]) {
         let name = '';
         let value = '';
         if (key === 'flipH') {
           name = $locale === 'id' ? 'Cermin H' : 'Flip H';
-          value = adjustments[key] ? 'ON' : 'OFF';
+          value = targetAdjustments[key] ? 'ON' : 'OFF';
         } else if (key === 'flipV') {
           name = $locale === 'id' ? 'Cermin V' : 'Flip V';
-          value = adjustments[key] ? 'ON' : 'OFF';
+          value = targetAdjustments[key] ? 'ON' : 'OFF';
         } else {
           name = $t(`edit.${key}`);
           if (name === `edit.${key}`) name = key;
-          const val = adjustments[key];
+          const val = targetAdjustments[key];
           if (typeof val === 'number') {
             value = val > 0 && key !== 'rotation' ? `+${val}` : val.toString();
             if (key === 'rotation') value = `${val}°`;
