@@ -70,6 +70,7 @@ pub fn run() {
             commands::save_applied_preset,
             commands::get_setting,
             commands::set_setting,
+            commands::extract_xmp_preset,
             // Utilities
             commands::convert_file_path,
             // Video processing

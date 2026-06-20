@@ -505,3 +505,158 @@ export function isDefault(adj: Adjustments): boolean {
 export function mergePreset(base: Adjustments, preset: Partial<Adjustments>): Adjustments {
   return { ...base, ...preset };
 }
+
+function parseXmpPreset(xmlText: string): Partial<Adjustments> {
+  const adjustments: Partial<Adjustments> = {};
+  if (typeof DOMParser === 'undefined') return adjustments;
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+
+    // XMP attributes or elements can be in <rdf:Description> or nested tags
+    const descriptions = doc.getElementsByTagNameNS('*', 'Description');
+    const getAttr = (name: string): string | null => {
+      // 1. Try attributes on <rdf:Description> elements
+      for (let i = 0; i < descriptions.length; i++) {
+        const desc = descriptions[i];
+        for (let j = 0; j < desc.attributes.length; j++) {
+          const attr = desc.attributes[j];
+          if (attr.localName?.toLowerCase() === name.toLowerCase()) {
+            return attr.value;
+          }
+        }
+      }
+      // 2. Try child elements
+      const elements = doc.getElementsByTagNameNS('*', name);
+      if (elements.length > 0) {
+        return elements[0].textContent;
+      }
+      return null;
+    };
+
+    const getFloat = (name: string): number | null => {
+      const val = getAttr(name);
+      return val ? parseFloat(val) : null;
+    };
+
+    // Map exposure: Lightroom -5.0 to 5.0 -> Keepix -100 to 100
+    const exp = getFloat('Exposure2012') ?? getFloat('Exposure');
+    if (exp !== null) adjustments.exposure = Math.max(-100, Math.min(100, Math.round(exp * 20)));
+
+    const contrast = getFloat('Contrast2012') ?? getFloat('Contrast');
+    if (contrast !== null) adjustments.contrast = Math.max(-100, Math.min(100, Math.round(contrast)));
+
+    const highlights = getFloat('Highlights2012') ?? getFloat('Highlights');
+    if (highlights !== null) adjustments.highlights = Math.max(-100, Math.min(100, Math.round(highlights)));
+
+    const shadows = getFloat('Shadows2012') ?? getFloat('Shadows');
+    if (shadows !== null) adjustments.shadows = Math.max(-100, Math.min(100, Math.round(shadows)));
+
+    const temp = getFloat('Temperature') ?? getFloat('Temp');
+    if (temp !== null) {
+      if (temp > 1500) {
+        // Kelvin mapping: 5500 is neutral
+        adjustments.temperature = Math.max(-100, Math.min(100, Math.round((temp - 5500) / 45)));
+      } else {
+        adjustments.temperature = Math.max(-100, Math.min(100, Math.round(temp)));
+      }
+    }
+
+    const tint = getFloat('Tint');
+    if (tint !== null) adjustments.tint = Math.max(-100, Math.min(100, Math.round(tint)));
+
+    const sat = getFloat('Saturation2012') ?? getFloat('Saturation');
+    if (sat !== null) adjustments.saturation = Math.max(-100, Math.min(100, Math.round(sat)));
+
+    const vib = getFloat('Vibrance');
+    if (vib !== null) adjustments.vibrance = Math.max(-100, Math.min(100, Math.round(vib)));
+
+    // Sharpness is typically 0 to 150. Map it to Keepix 0 to 100
+    const sharp = getFloat('Sharpness') ?? getFloat('Sharpen');
+    if (sharp !== null) adjustments.sharpen = Math.max(0, Math.min(100, Math.round((sharp / 150) * 100)));
+
+    const clarity = getFloat('Clarity2012') ?? getFloat('Clarity');
+    if (clarity !== null) adjustments.clarity = Math.max(-100, Math.min(100, Math.round(clarity)));
+
+    // Vignette: negative value means darkening (which maps to positive vignette in Keepix)
+    const vig = getFloat('PostCropVignetteAmount') ?? getFloat('VignetteAmount');
+    if (vig !== null) adjustments.vignette = Math.max(0, Math.min(100, Math.round(Math.abs(vig))));
+
+    const grain = getFloat('GrainAmount');
+    if (grain !== null) adjustments.grain = Math.max(0, Math.min(100, Math.round(grain)));
+  } catch (err) {
+    console.error('Failed to parse XMP XML:', err);
+  }
+
+  return adjustments;
+}
+
+function parseLrtemplatePreset(text: string): Partial<Adjustments> {
+  const adjustments: Partial<Adjustments> = {};
+
+  const getVal = (key: string): number | null => {
+    // Search for pattern: key = value or key = "value"
+    const regex = new RegExp(`\\b${key}\\b\\s*=\\s*["']?(-?\\d+\\.?\\d*)["']?`, 'i');
+    const match = text.match(regex);
+    return match ? parseFloat(match[1]) : null;
+  };
+
+  const exp = getVal('Exposure2012') ?? getVal('Exposure');
+  if (exp !== null) adjustments.exposure = Math.max(-100, Math.min(100, Math.round(exp * 20)));
+
+  const contrast = getVal('Contrast2012') ?? getVal('Contrast');
+  if (contrast !== null) adjustments.contrast = Math.max(-100, Math.min(100, Math.round(contrast)));
+
+  const highlights = getVal('Highlights2012') ?? getVal('Highlights');
+  if (highlights !== null) adjustments.highlights = Math.max(-100, Math.min(100, Math.round(highlights)));
+
+  const shadows = getVal('Shadows2012') ?? getVal('Shadows');
+  if (shadows !== null) adjustments.shadows = Math.max(-100, Math.min(100, Math.round(shadows)));
+
+  const temp = getVal('Temperature') ?? getVal('Temp');
+  if (temp !== null) {
+    if (temp > 1500) {
+      adjustments.temperature = Math.max(-100, Math.min(100, Math.round((temp - 5500) / 45)));
+    } else {
+      adjustments.temperature = Math.max(-100, Math.min(100, Math.round(temp)));
+    }
+  }
+
+  const tint = getVal('Tint');
+  if (tint !== null) adjustments.tint = Math.max(-100, Math.min(100, Math.round(tint)));
+
+  const sat = getVal('Saturation2012') ?? getVal('Saturation');
+  if (sat !== null) adjustments.saturation = Math.max(-100, Math.min(100, Math.round(sat)));
+
+  const vib = getVal('Vibrance');
+  if (vib !== null) adjustments.vibrance = Math.max(-100, Math.min(100, Math.round(vib)));
+
+  const sharp = getVal('Sharpness') ?? getVal('Sharpen');
+  if (sharp !== null) adjustments.sharpen = Math.max(0, Math.min(100, Math.round((sharp / 150) * 100)));
+
+  const clarity = getVal('Clarity2012') ?? getVal('Clarity');
+  if (clarity !== null) adjustments.clarity = Math.max(-100, Math.min(100, Math.round(clarity)));
+
+  const vig = getVal('PostCropVignetteAmount') ?? getVal('VignetteAmount');
+  if (vig !== null) adjustments.vignette = Math.max(0, Math.min(100, Math.round(Math.abs(vig))));
+
+  const grain = getVal('GrainAmount');
+  if (grain !== null) adjustments.grain = Math.max(0, Math.min(100, Math.round(grain)));
+
+  return adjustments;
+}
+
+/**
+ * Parses raw text from a Lightroom preset file (.xmp or .lrtemplate) 
+ * or extracted XMP metadata and returns a set of partial adjustments.
+ */
+export function parseLightroomPreset(text: string): Partial<Adjustments> {
+  const trimmed = text.trim();
+  if (trimmed.startsWith('<') || trimmed.includes('<x:xmpmeta')) {
+    return parseXmpPreset(text);
+  } else {
+    return parseLrtemplatePreset(text);
+  }
+}
+

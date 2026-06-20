@@ -6,13 +6,15 @@
     defaultSizes = [250, 600, 300],
     left,
     center,
-    right
+    right,
+    rightCollapsed = false
   }: {
     minSizes?: number[];
     defaultSizes?: number[];
     left?: import('svelte').Snippet;
     center?: import('svelte').Snippet;
     right?: import('svelte').Snippet;
+    rightCollapsed?: boolean;
   } = $props();
   
   let container = $state<HTMLDivElement>();
@@ -117,26 +119,30 @@
   </div>
 
   <!-- Panel 1 (Main/Center) -->
-  <div class="split-panel" style="width: {sizes[1]}px; flex: 1;">
+  <div class="split-panel" style="width: {rightCollapsed ? 'auto' : (sizes[1] + 'px')}; flex: 1;">
     {@render center?.()}
   </div>
 
   <!-- Resizer 1 -->
-  <div 
-    class="split-resizer" 
-    onpointerdown={(e) => onPointerDown(e, 1)} 
-    role="separator" 
-    aria-label="Resize panels"
-    aria-valuenow={sizes[0] + sizes[1]}
-    tabindex="0"
-  >
-    <div class="resizer-handle"></div>
-  </div>
+  {#if !rightCollapsed}
+    <div 
+      class="split-resizer" 
+      onpointerdown={(e) => onPointerDown(e, 1)} 
+      role="separator" 
+      aria-label="Resize panels"
+      aria-valuenow={sizes[0] + sizes[1]}
+      tabindex="0"
+    >
+      <div class="resizer-handle"></div>
+    </div>
+  {/if}
 
   <!-- Panel 2 (Edit Panel) -->
-  <div class="split-panel" style="width: {sizes[2]}px;">
-    {@render right?.()}
-  </div>
+  {#if !rightCollapsed}
+    <div class="split-panel" style="width: {sizes[2]}px;">
+      {@render right?.()}
+    </div>
+  {/if}
 </div>
 
 <style>

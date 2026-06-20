@@ -6,12 +6,15 @@
   import { toast } from '$lib/stores/toast';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { editPanelCollapsed } from '$lib/stores/ui';
   import {
     type Adjustments,
     DEFAULT_ADJUSTMENTS,
     PRESETS,
     isDefault,
     mergePreset,
+    parseLightroomPreset,
   } from '$lib/services/image-editor';
 
   let { item }: { item: MediaItem | null } = $props();
@@ -28,20 +31,32 @@
   // Load adjustments when item changes
   let prevItemId = '';
   $effect(() => {
-    if (item && item.id !== prevItemId) {
-      prevItemId = item.id;
-      if (item.adjustments) {
-        try {
-          const parsed = JSON.parse(item.adjustments);
-          adjustments = { ...DEFAULT_ADJUSTMENTS, ...parsed };
-        } catch {
+    if (item) {
+      const currentAdjStr = JSON.stringify(adjustments);
+      const isDifferentItem = item.id !== prevItemId;
+      const isExternalChange = item.adjustments !== currentAdjStr;
+
+      if (isDifferentItem || isExternalChange) {
+        prevItemId = item.id;
+        if (item.adjustments) {
+          try {
+            const parsed = JSON.parse(item.adjustments);
+            adjustments = { ...DEFAULT_ADJUSTMENTS, ...parsed };
+          } catch {
+            resetAdjustments();
+          }
+        } else {
           resetAdjustments();
         }
-      } else {
-        resetAdjustments();
+        activePreset = item.applied_preset || null;
+        if (isDifferentItem) {
+          healingMode = false;
+        }
       }
-      activePreset = item.applied_preset || null;
-      healingMode = false;
+    } else {
+      resetAdjustments();
+      activePreset = null;
+      prevItemId = '';
     }
   });
 
@@ -62,8 +77,69 @@
       }
     }
 
+    // Optimistically update the store item so PreviewView reacts immediately
+    item.adjustments = JSON.stringify(adjustments);
+    item.applied_preset = activePreset;
+    const updateList = (list: MediaItem[]) => {
+      const idx = list.findIndex(i => i.id === item!.id);
+      if (idx !== -1) {
+        list[idx] = { ...item! };
+      }
+    };
+
+    const currentMedia = get(mediaItems);
+    updateList(currentMedia);
+    mediaItems.set([...currentMedia]);
+
     await saveAdjustmentsToBackend();
     toast.success($t('edit.title') + ': ' + $t(PRESETS.find(p => p.id === presetId)?.labelKey || ''));
+  }
+
+  async function importPreset() {
+    if (!item) return;
+    try {
+      const selected = await open({
+        multiple: false,
+        title: $t('edit.import_preset'),
+        filters: [
+          {
+            name: 'Lightroom Preset / RAW Photo',
+            extensions: ['xmp', 'lrtemplate', 'dng', 'arw', 'cr2', 'cr3', 'nef', 'jpg', 'jpeg', 'tif', 'tiff']
+          }
+        ]
+      });
+
+      if (!selected || typeof selected !== 'string') return;
+
+      const presetText = await invoke<string>('extract_xmp_preset', { filePath: selected });
+
+      const parsedValues = parseLightroomPreset(presetText);
+      if (Object.keys(parsedValues).length === 0) {
+        toast.error($t('edit.import_preset.fail', { err: 'No valid adjustments found in file' }));
+        return;
+      }
+
+      adjustments = mergePreset({ ...DEFAULT_ADJUSTMENTS }, parsedValues);
+      activePreset = null; // Custom preset applied
+
+      // Optimistically update store
+      item.adjustments = JSON.stringify(adjustments);
+      const updateList = (list: MediaItem[]) => {
+        const idx = list.findIndex(i => i.id === item!.id);
+        if (idx !== -1) {
+          list[idx] = { ...item! };
+        }
+      };
+      const currentMedia = get(mediaItems);
+      updateList(currentMedia);
+      mediaItems.set([...currentMedia]);
+
+      await saveAdjustmentsToBackend();
+      toast.success($t('edit.import_preset.success'));
+    } catch (err: any) {
+      console.error('Failed to import preset:', err);
+      toast.error($t('edit.import_preset.fail', { err: err.toString() }));
+    }
   }
 
   // Debounced save
@@ -221,6 +297,11 @@
         </svg>
       </button>
       <button class="btn-text" onclick={handleReset}>{$t('edit.reset')}</button>
+      <button class="btn-icon collapse-btn" onclick={() => editPanelCollapsed.set(true)} title={$t('edit.minimize')}>
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="5 2 10 7 5 12"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -260,6 +341,12 @@
                     </button>
                   {/each}
                 </div>
+                <button class="import-preset-btn" onclick={importPreset}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M8 12V2M4 6l4-4 4 4M2 14h12"/>
+                  </svg>
+                  <span>{$t('edit.import_preset')}</span>
+                </button>
 
               {:else if sec.id === 'basic'}
                 <div class="slider-group">
@@ -804,5 +891,30 @@
     border-radius: var(--radius-sm);
     border: 1px solid rgba(59, 130, 246, 0.15);
     margin-top: var(--space-2);
+  }
+
+  .import-preset-btn {
+    width: 100%;
+    margin-top: var(--space-3);
+    background: var(--bg-tertiary);
+    border: 1px dashed var(--border-strong);
+    color: var(--text-secondary);
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+
+  .import-preset-btn:hover {
+    border-style: solid;
+    border-color: var(--accent);
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.02);
   }
 </style>

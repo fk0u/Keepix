@@ -966,3 +966,50 @@ pub fn mark_video_unsupported(
         
     Ok(())
 }
+
+fn extract_xmp_from_file(path: &Path) -> Option<String> {
+    // 1. If it's an xmp or lrtemplate file itself
+    if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("xmp") || ext.eq_ignore_ascii_case("lrtemplate")) {
+        return std::fs::read_to_string(path).ok();
+    }
+
+    // 2. Look for sidecar xmp
+    let sidecar_path = path.with_extension("xmp");
+    if sidecar_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&sidecar_path) {
+            return Some(content);
+        }
+    }
+
+    // 3. Look for embedded XMP in the RAW / photo file itself
+    if let Ok(bytes) = std::fs::read(path) {
+        let start_pattern = b"<x:xmpmeta";
+        let end_pattern = b"</x:xmpmeta>";
+
+        if let Some(start_idx) = bytes.windows(start_pattern.len()).position(|window| window == start_pattern) {
+            if let Some(end_idx) = bytes.windows(end_pattern.len()).position(|window| window == end_pattern) {
+                if start_idx < end_idx {
+                    if let Ok(xmp_str) = String::from_utf8(bytes[start_idx..end_idx + end_pattern.len()].to_vec()) {
+                        return Some(xmp_str);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[tauri::command]
+pub fn extract_xmp_preset(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    match extract_xmp_from_file(path) {
+        Some(xmp) => Ok(xmp),
+        None => Err("No Lightroom preset or XMP metadata found in this file".to_string()),
+    }
+}
+

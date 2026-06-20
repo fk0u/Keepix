@@ -23,7 +23,7 @@
   import Toolbar from '$lib/components/Toolbar.svelte';
   import MetadataPanel from '$lib/components/MetadataPanel.svelte';
   import ProgressBar from '$lib/components/ProgressBar.svelte';
-  import { showShortcuts, showExport } from '$lib/stores/ui';
+  import { showShortcuts, showExport, editPanelCollapsed } from '$lib/stores/ui';
   import SplitPane from '$lib/components/SplitPane.svelte';
   import EditPanel from '$lib/components/EditPanel.svelte';
   import { get } from 'svelte/store';
@@ -446,7 +446,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="cull-workspace">
-  <SplitPane minSizes={[240, 400, 260]} defaultSizes={[280, 800, 320]}>
+  <SplitPane minSizes={[240, 400, 260]} defaultSizes={[280, 800, 320]} rightCollapsed={$editPanelCollapsed}>
     {#snippet left()}
       <div style="height: 100%;">
         <Sidebar onOpenExport={() => showExport.set(true)} />
@@ -547,6 +547,13 @@
             <kbd>?</kbd> {$t('cull.status.shortcuts')}
           </span>
         </div>
+        {#if $editPanelCollapsed}
+          <button class="expand-edit-panel-btn" onclick={() => editPanelCollapsed.set(false)} title="Expand Edit Panel">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="10 3 5 8 10 13"/>
+            </svg>
+          </button>
+        {/if}
       </div>
     {/snippet}
 
@@ -670,5 +677,34 @@
     pointer-events: none;
     opacity: 0.9;
     box-shadow: var(--shadow-lg);
+  }
+
+  /* Expand Edit Panel Button */
+  .expand-edit-panel-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-subtle);
+    border-right: none;
+    border-top-left-radius: var(--radius-md);
+    border-bottom-left-radius: var(--radius-md);
+    width: 20px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+    padding: 0;
+  }
+
+  .expand-edit-panel-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    width: 24px;
   }
 </style>

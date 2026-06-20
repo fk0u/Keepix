@@ -135,27 +135,34 @@
       return;
     }
 
-    // Load image and render to canvas
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      sourceImage = img;
-      originalImageSrc = src;
-
+    if (sourceImage && originalImageSrc === src) {
+      // Reuse already loaded image for instant synchronous rendering
       const canvas = document.createElement('canvas');
-      renderToCanvas(canvas, img, adj);
+      renderToCanvas(canvas, sourceImage, adj);
       editCanvas = canvas;
+    } else {
+      // Load image and render to canvas
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        sourceImage = img;
+        originalImageSrc = src;
 
-      // Store a copy for healing source
-      if (!healSourceCanvas) {
-        healSourceCanvas = document.createElement('canvas');
-      }
-      healSourceCanvas.width = img.naturalWidth || img.width;
-      healSourceCanvas.height = img.naturalHeight || img.height;
-      const sctx = healSourceCanvas.getContext('2d');
-      if (sctx) sctx.drawImage(img, 0, 0);
-    };
-    img.src = src;
+        const canvas = document.createElement('canvas');
+        renderToCanvas(canvas, img, adj);
+        editCanvas = canvas;
+
+        // Store a copy for healing source
+        if (!healSourceCanvas) {
+          healSourceCanvas = document.createElement('canvas');
+        }
+        healSourceCanvas.width = img.naturalWidth || img.width;
+        healSourceCanvas.height = img.naturalHeight || img.height;
+        const sctx = healSourceCanvas.getContext('2d');
+        if (sctx) sctx.drawImage(img, 0, 0);
+      };
+      img.src = src;
+    }
   });
 
   // Calculate items being compared dynamically based on compareMode
