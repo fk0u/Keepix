@@ -130,6 +130,7 @@ const translations = {
 
     // Sidebar & Navigation
     'sidebar.export_culled': 'Export Culled...',
+    'sidebar.ai_cull': 'AI Auto-Cull',
     'sidebar.categories': 'Categories',
     'sidebar.all': 'All',
     'sidebar.uncategorized': 'Uncategorized',
@@ -494,6 +495,7 @@ const translations = {
 
     // Sidebar & Navigation
     'sidebar.export_culled': 'Ekspor Pilihan...',
+    'sidebar.ai_cull': 'Pemilahan AI',
     'sidebar.categories': 'Kategori',
     'sidebar.all': 'Semua',
     'sidebar.uncategorized': 'Belum Dikategorikan',

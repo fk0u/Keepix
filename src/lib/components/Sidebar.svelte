@@ -9,6 +9,7 @@
   import { getCategoryColor, COLOR_LABELS } from '$lib/types';
   import { goto } from '$app/navigation';
   import { t } from '$lib/i18n';
+  import { showAiCull } from '$lib/stores/ui';
 
   let { onOpenExport }: { onOpenExport?: () => void } = $props();
 
@@ -46,8 +47,8 @@
 
   <!-- Category filters -->
   <nav class="sidebar-nav">
-    <!-- Export Action -->
-    <div style="padding: 0 var(--space-1) var(--space-4);">
+    <!-- Actions (Export and AI Auto-Cull) -->
+    <div style="padding: 0 var(--space-1) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2);">
       <button class="btn btn-primary" style="width: 100%; display: flex; justify-content: center; gap: var(--space-2); height: 36px; align-items: center;" onclick={onOpenExport}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
@@ -55,6 +56,14 @@
           <line x1="12" y1="2" x2="12" y2="15"/>
         </svg>
         {$t('sidebar.export_culled')}
+      </button>
+      
+      <button class="btn-ai-cull" onclick={() => showAiCull.set(true)}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M9 12h6M12 9v6"/>
+        </svg>
+        <span>{$t('sidebar.ai_cull')}</span>
       </button>
     </div>
 
@@ -413,5 +422,33 @@
     border-color: white;
     box-shadow: 0 0 8px var(--label-color);
     transform: scale(1.1);
+  }
+
+  .btn-ai-cull {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: var(--space-2);
+    height: 36px;
+    background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    border-radius: var(--radius-md);
+    color: white;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(124, 58, 237, 0.2);
+    transition: all 0.2s ease-in-out;
+  }
+
+  .btn-ai-cull:hover {
+    background: linear-gradient(135deg, #b55fe6 0%, #8b5cf6 100%);
+    box-shadow: 0 0 15px rgba(124, 58, 237, 0.5);
+    transform: translateY(-1px);
+  }
+
+  .btn-ai-cull:active {
+    transform: translateY(0);
   }
 </style>

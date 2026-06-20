@@ -47,6 +47,12 @@ Keepix solves this by treating culling as a performance-critical system operatio
 - **Auto-Advance Mode**: Once categorized, Keepix advances your selection to the next item automatically, letting you cull at the speed of thought.
 - **Full History**: Press `Ctrl + Z` to undo sorting mistakes, backed by database transaction rollbacks.
  
+### 🤖 Agentic AI Auto-Cull Assistant
+- **Multimodal Visual Sorting**: Automate initial photo culling using Google Gemini API (`gemini-2.5-flash` or `gemini-2.5-pro` vision models) directly from the client.
+- **Custom Culling Rules**: Write custom instructions in natural language (e.g., "Keep sharp, expressive portraits; trash blurry shots, blinking eyes, or duplicate test exposures").
+- **Metadata Integration**: Automatically injects camera model, aperture, shutter speed, ISO, and lens info into the AI context for EXIF-aware culling decisions.
+- **Real-Time Reasoning Dashboard**: Displays progress bars, decision stats, and a live agent reasoning console showing the AI's step-by-step logic for rating and categorizing each image.
+- **Local Key Storage**: Keeps your Gemini API key 100% private in local storage. 
 ### 🎨 Non-Destructive Canvas Photo Editor (v4.1.0 Upgrades)
 - **HTML5 Canvas Pipeline**: Pixel-level adjustments applied instantly without layout reflows or CPU bottlenecks.
 - **12 Sliders**: Control Exposure, Contrast, Highlights, Shadows, Temperature, Tint, Saturation, Vibrance, Clarity, Vignette, Sharpening, and Noise Reduction.

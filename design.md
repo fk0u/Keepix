@@ -148,3 +148,52 @@ The Edit Panel minimization utilizes a curtain animation system:
 - Rather than unmounting, the edit panel sets `width: 0px` and `min-width: 0px` with `overflow: hidden`.
 - Contents are wrapped in a nested wrapper with `width: [expandedSize]px` and `flex-shrink: 0`. This keeps the child controls in place during transitions instead of squeezing them together.
 - Transition durations are deactivated dynamically when the user is dragging split handles (`isDragging`), ensuring near-zero dragging stutters.
+
+---
+
+## 7. Agentic AI Auto-Cull Assistant
+
+To automate the tedious manual culling phase, Keepix introduces a client-side Agentic AI Auto-Culling Assistant.
+
+### Architecture & Data Flow
+
+```
+   [Svelte UI (AiCullModal)] ──(Tauri invoke)──► [Rust Backend (Metadata & Base64)]
+               │                                                    │
+         (Gemini Request)                                     (Reads Image Preview)
+               │                                                    │
+               ▼                                                    ▼
+      [Google Gemini API] ◄────────────────────────────────[Base64 + EXIF Data]
+  (gemini-2.5-flash / pro)
+               │
+      (Structured Response)
+               │
+               ▼
+   [Database & UI States] ◄──(SQLite Updates)─── [Tauri Bridge Set Commands]
+ (Best, Trash, Draft, Review)
+```
+
+1. **Local Previews**: The Svelte frontend invokes Tauri command `read_image_base64` to convert local photo previews to Base64 buffers. It queries the EXIF metadata via Tauri bridge `get_metadata`.
+2. **Context Compilation**: It formats a strict system prompt containing user-defined culling instructions, photo EXIF details (camera model, aperture, ISO, shutter speed, etc.), and structural guidelines.
+3. **Structured Gemini Vision API Request**: The prompt and image data are sent directly to the Gemini API (`gemini-2.5-flash` or `gemini-2.5-pro` multimodal vision models) from the client-side. The API returns a strict JSON object matching a predefined schema:
+   ```json
+   {
+     "category": "best" | "trash" | "draft" | "review" | "none",
+     "rating": number,
+     "colorLabel": "red" | "orange" | "yellow" | "green" | "none",
+     "reason": "concise explanation"
+   }
+   ```
+4. **Real-time Local Application**:
+   - The returned categorizations (BEST, TRASH, DRAFT, REVIEW), star ratings, and color labels are saved back to the local SQLite database in real-time.
+   - An interactive dashboard displays progress indicators, statistics counters, active photo preview, and an agent console log showing the reasoning behind each choice.
+5. **Security & Privacy**: The user's Gemini API Key is stored only in the browser's `localStorage` and never leaves the local machine.
+
+### Advanced Enhancements
+
+* **Excluding WebP Files**: The AI culling engine filters the input list to exclude any photos ending in `.webp` case-insensitively. This ensures it doesn't try to double-process cached thumbnails or generated WebP artifacts.
+* **Multimodal Auto-Editing**: When the "Auto-Edit & Enhance (AI Auto-Enhance)" checkbox is enabled, the Assistant requests recommended adjustments for standard Lightroom-style parameters (Exposure, Contrast, Highlights, Shadows, Temp, Tint, Saturation, Vibrance, Clarity, Vignette, Sharpening, and Grain).
+  - The API schema dynamically appends an `autoEdit` JSON block structure.
+  - The returned adjustment coordinates are written back to the SQLite DB via Tauri's `save_adjustments` command.
+  - The Svelte store `mediaItems` is updated reactively, applying the AI edits instantly to the UI viewport grid and detail editor panels.
+

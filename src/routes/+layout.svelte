@@ -11,7 +11,8 @@
   import KeyboardShortcutsModal from '$lib/components/KeyboardShortcutsModal.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
   import HelpModal from '$lib/components/HelpModal.svelte';
-  import { showSettings, showAbout, showShortcuts, showExport, showHelp, initTheme } from '$lib/stores/ui';
+  import AiCullModal from '$lib/components/AiCullModal.svelte';
+  import { showSettings, showAbout, showShortcuts, showExport, showHelp, showAiCull, initTheme } from '$lib/stores/ui';
 
   onMount(() => {
     initLanguage();
@@ -53,6 +54,7 @@
 {#if $showHelp}
   <HelpModal onClose={() => showHelp.set(false)} />
 {/if}
+<AiCullModal />
 
 <svelte:window onkeydown={handleGlobalKeydown} />
 

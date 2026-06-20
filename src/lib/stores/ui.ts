@@ -42,3 +42,5 @@ function applyThemeClass(themeName: string) {
     root.classList.add(`theme-${themeName}`);
   }
 }
+
+export const showAiCull = writable(false);
