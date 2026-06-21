@@ -2,9 +2,11 @@ use keepix_core::db::{self, DbState, MediaItem};
 use keepix_core::metadata;
 use keepix_core::scanner;
 use keepix_core::thumbnail;
+use keepix_core::ai;
 use serde::Serialize;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager};
+use rusqlite::params;
 
 // ============================================================================
 // Response types
@@ -142,6 +144,15 @@ pub async fn scan_folder(
             applied_preset: None,
             created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             updated_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            ai_aesthetic_score: None,
+            ai_technical_score: None,
+            ai_overall_score: None,
+            ai_confidence: None,
+            ai_face_count: None,
+            ai_blink_detected: None,
+            ai_is_duplicate: Some(0),
+            ai_duplicate_group_id: None,
+            ai_reasoning: None,
         })
         .collect();
 
@@ -1012,4 +1023,609 @@ pub fn extract_xmp_preset(file_path: String) -> Result<String, String> {
         None => Err("No Lightroom preset or XMP metadata found in this file".to_string()),
     }
 }
+
+// ============================================================================
+// AI Culling & Style commands
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AiProgressEvent {
+    pub current: usize,
+    pub total: usize,
+    pub phase: String, // "loading" | "scoring" | "duplicates" | "complete"
+    pub current_file: String,
+    pub aesthetic_score: f64,
+    pub technical_score: f64,
+    pub overall_score: f64,
+    pub face_count: i32,
+    pub blink_detected: bool,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DuplicateGroup {
+    pub group_id: String,
+    pub items: Vec<MediaItem>,
+}
+
+#[tauri::command]
+pub fn check_ai_models_status(app: AppHandle) -> Result<bool, String> {
+    let models_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
+    Ok(ai::ModelManager::check_models_present(&models_dir))
+}
+
+#[tauri::command]
+pub fn download_ai_models(app: AppHandle) -> Result<(), String> {
+    let models_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        let progress_fn = move |progress: ai::DownloadProgressEvent| {
+            app_clone.emit("download-progress", progress).ok();
+        };
+        if let Err(e) = ai::ModelManager::download_all_models(&models_dir, progress_fn) {
+            log::error!("Failed to download models: {}", e);
+            app.emit("download-complete", Err::<(), String>(e)).ok();
+        } else {
+            app.emit("download-complete", Ok::<(), String>(())).ok();
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn run_local_ai_cull(
+    app: AppHandle,
+    _state: tauri::State<'_, DbState>,
+    project_id: String,
+    aesthetic_weight: f64,
+    technical_weight: f64,
+    face_weight: f64,
+    duplicate_threshold: f64,
+) -> Result<(), String> {
+    let app_clone = app.clone();
+    
+    // Create new background connection to SQLite database
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_state = DbState {
+        conn: std::sync::Mutex::new(
+            rusqlite::Connection::open(app_data_dir.join("keepix.db")).map_err(|e| e.to_string())?
+        ),
+    };
+
+    std::thread::spawn(move || {
+        // Step 1: Load ONNX Sessions
+        app_clone.emit("ai-progress", AiProgressEvent {
+            current: 0,
+            total: 0,
+            phase: "loading".to_string(),
+            current_file: "".to_string(),
+            aesthetic_score: 0.0,
+            technical_score: 0.0,
+            overall_score: 0.0,
+            face_count: 0,
+            blink_detected: false,
+            message: "Loading ONNX Models into memory...".to_string(),
+        }).ok();
+
+        let models_dir = app_data_dir.join("models");
+        let mut manager = ai::ModelManager::new();
+        if let Err(e) = manager.load_sessions(&models_dir) {
+            log::error!("Failed to load ONNX sessions: {}", e);
+            app_clone.emit("ai-progress", AiProgressEvent {
+                current: 0,
+                total: 0,
+                phase: "complete".to_string(),
+                current_file: "".to_string(),
+                aesthetic_score: 0.0,
+                technical_score: 0.0,
+                overall_score: 0.0,
+                face_count: 0,
+                blink_detected: false,
+                message: format!("Error loading models: {}", e),
+            }).ok();
+            return;
+        }
+
+        let clip_sess = manager.clip_session.as_mut().unwrap();
+        let aes_sess = manager.aesthetic_session.as_mut().unwrap();
+        let musiq_sess = manager.musiq_session.as_mut().unwrap();
+        let face_sess = manager.face_session.as_mut().unwrap();
+
+        // Step 2: Query uncategorized photos for this project
+        let photos = {
+            if let Ok(conn) = db_state.conn.lock() {
+                // Get all photos in project (uncategorized only)
+                db::get_media_items(
+                    &conn,
+                    &project_id,
+                    None,
+                    None,
+                    true, // uncategorized only
+                    None,
+                    None,
+                    None,
+                    "name",
+                    "asc",
+                    0,
+                    100000,
+                ).unwrap_or(Vec::new())
+            } else {
+                Vec::new()
+            }
+        };
+
+        let total = photos.len();
+        if total == 0 {
+            app_clone.emit("ai-progress", AiProgressEvent {
+                current: 0,
+                total: 0,
+                phase: "complete".to_string(),
+                current_file: "".to_string(),
+                aesthetic_score: 0.0,
+                technical_score: 0.0,
+                overall_score: 0.0,
+                face_count: 0,
+                blink_detected: false,
+                message: "No photos found to process.".to_string(),
+            }).ok();
+            return;
+        }
+
+        // Step 3: Run pipeline for each photo
+        for (i, photo) in photos.iter().enumerate() {
+            let path = Path::new(&photo.file_path);
+            if !path.exists() {
+                continue;
+            }
+
+            // Preprocess image tensor once for CLIP & Technical scorers
+            let tensor = match ai::preprocess_for_clip(path) {
+                Ok(t) => t,
+                Err(e) => {
+                    log::warn!("Preprocessing failed for {}: {}", photo.file_name, e);
+                    continue;
+                }
+            };
+
+            // A. Run CLIP & Save Embedding
+            let embedding = match ai::get_clip_embedding(clip_sess, &tensor) {
+                Ok(emb) => {
+                    if let Ok(conn) = db_state.conn.lock() {
+                        db::insert_embedding(&conn, &photo.id, &emb).ok();
+                    }
+                    emb
+                }
+                Err(e) => {
+                    log::warn!("CLIP error for {}: {}", photo.file_name, e);
+                    continue;
+                }
+            };
+
+            // B. Run Aesthetic Scorer (using CLIP embedding slice)
+            let aesthetic = ai::get_aesthetic_score(aes_sess, &embedding).unwrap_or(5.0);
+
+            // C. Run Technical Quality Scorer (using the preprocessed image tensor)
+            let technical = ai::get_technical_score(musiq_sess, &tensor).unwrap_or(50.0);
+
+            // D. Run Face Detector (does its own resizing inside detect_faces_and_blinks)
+            let (face_count, blink_detected) = ai::detect_faces_and_blinks(face_sess, path).unwrap_or((0, 0));
+
+            // E. Overall Score and Confidence Computation
+            // Standardize scores to [0.0, 1.0] range
+            let norm_aesthetic = (aesthetic as f64 / 10.0).clamp(0.0, 1.0);
+            let norm_technical = (technical as f64 / 100.0).clamp(0.0, 1.0);
+
+            // Compose weights
+            let mut overall = (norm_aesthetic * aesthetic_weight) + (norm_technical * technical_weight);
+            
+            // Apply Blink and Face Penalty if eyes are closed on a detected face
+            if face_count > 0 {
+                if blink_detected == 1 {
+                    overall -= face_weight * 0.5; // subtract penalty
+                } else {
+                    overall += face_weight * 0.2; // positive for good open eyes
+                }
+            }
+            let overall_score = overall.clamp(0.0, 1.0);
+            let confidence = 0.85; // Standard ONNX confidence baseline
+
+            // F. Create reasoning text
+            let reasoning = format!(
+                "Aesthetic: {:.1}/10, Sharpness: {:.0}/100, Faces: {}, Blink: {}",
+                aesthetic,
+                technical,
+                face_count,
+                if blink_detected == 1 { "YES" } else { "NO" }
+            );
+
+            // G. Save back to database
+            if let Ok(conn) = db_state.conn.lock() {
+                db::update_media_ai_scores(
+                    &conn,
+                    &photo.id,
+                    Some(aesthetic as f64),
+                    Some(technical as f64),
+                    Some(overall_score),
+                    Some(confidence),
+                    Some(face_count),
+                    Some(blink_detected),
+                    Some(0), // is_duplicate (0 initially)
+                    None, // duplicate_group_id
+                    Some(&reasoning),
+                ).ok();
+
+                // If overall score is very high (> 0.70), auto-recommend BEST. If very low (< 0.25), TRASH.
+                // Otherwise, leave uncategorized or review.
+                let cat_id = if overall_score > 0.75 {
+                    Some(2) // Simpan / Best
+                } else if overall_score < 0.25 {
+                    Some(1) // Buang / Trash
+                } else {
+                    None // Uncategorized / Review
+                };
+                if cat_id.is_some() {
+                    db::set_media_category(&conn, &photo.id, cat_id).ok();
+                }
+            }
+
+            // Emit Progress
+            app_clone.emit("ai-progress", AiProgressEvent {
+                current: i + 1,
+                total,
+                phase: "scoring".to_string(),
+                current_file: photo.file_name.clone(),
+                aesthetic_score: aesthetic as f64,
+                technical_score: technical as f64,
+                overall_score,
+                face_count,
+                blink_detected: blink_detected == 1,
+                message: format!("Scored {} successfully", photo.file_name),
+            }).ok();
+        }
+
+        // Step 4: Run Duplicate & Similarity detection across all project embeddings
+        app_clone.emit("ai-progress", AiProgressEvent {
+            current: total,
+            total,
+            phase: "duplicates".to_string(),
+            current_file: "".to_string(),
+            aesthetic_score: 0.0,
+            technical_score: 0.0,
+            overall_score: 0.0,
+            face_count: 0,
+            blink_detected: false,
+            message: "Running duplicate & similarity checks...".to_string(),
+        }).ok();
+
+        if let Ok(conn) = db_state.conn.lock() {
+            // Retrieve all items & embeddings in project
+            let all_items = db::get_media_items(
+                &conn,
+                &project_id,
+                None,
+                None,
+                false, // include all
+                None,
+                None,
+                None,
+                "name",
+                "asc",
+                0,
+                100000,
+            ).unwrap_or(Vec::new());
+
+            let mut embeddings = Vec::new();
+            for item in &all_items {
+                if let Ok(Some(emb)) = db::get_embedding(&conn, &item.id) {
+                    embeddings.push((item.id.clone(), item.ai_overall_score.unwrap_or(0.0), emb));
+                }
+            }
+
+            let mut visited = std::collections::HashSet::new();
+            for (id1, score1, emb1) in &embeddings {
+                if visited.contains(id1) {
+                    continue;
+                }
+
+                let mut group = vec![(id1.clone(), *score1)];
+                for (id2, score2, emb2) in &embeddings {
+                    if id1 == id2 || visited.contains(id2) {
+                        continue;
+                    }
+
+                    let similarity = ai::cosine_similarity(emb1, emb2);
+                    if similarity > duplicate_threshold as f32 {
+                        group.push((id2.clone(), *score2));
+                    }
+                }
+
+                if group.len() > 1 {
+                    let group_id = uuid::Uuid::new_v4().to_string();
+                    
+                    // Sort items by score descending
+                    group.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                    
+                    // Mark the highest-scoring as primary, others as duplicates
+                    for (idx, (media_id, _)) in group.iter().enumerate() {
+                        let is_duplicate = if idx == 0 { 0 } else { 1 };
+                        
+                        // If it is marked duplicate, we can auto-category it to Trash (1) or color label it!
+                        if is_duplicate == 1 {
+                            db::set_media_category(&conn, media_id, Some(1)).ok(); // Auto-Trash
+                            db::set_color_label(&conn, media_id, Some("red")).ok(); // Mark with red label
+                        }
+                        
+                        conn.execute(
+                            "UPDATE media_items SET 
+                                ai_is_duplicate = ?1, 
+                                ai_duplicate_group_id = ?2,
+                                ai_reasoning = ai_reasoning || ?3
+                             WHERE id = ?4",
+                            params![
+                                is_duplicate,
+                                group_id,
+                                if is_duplicate == 1 { " | Duplicate (Discard recommendation)" } else { " | Duplicate Primary (Keep recommendation)" },
+                                media_id
+                            ],
+                        ).ok();
+
+                        visited.insert(media_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Step 5: Final completion
+        app_clone.emit("ai-progress", AiProgressEvent {
+            current: total,
+            total,
+            phase: "complete".to_string(),
+            current_file: "".to_string(),
+            aesthetic_score: 0.0,
+            technical_score: 0.0,
+            overall_score: 0.0,
+            face_count: 0,
+            blink_detected: false,
+            message: "Local AI Culling workflow complete!".to_string(),
+        }).ok();
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn train_and_predict_style(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<usize, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    // 1. Get user manual culls (Best / Trash labeled CLIP embeddings)
+    let labeled_data = db::get_labeled_embeddings(&conn, &project_id).map_err(|e| e.to_string())?;
+    if labeled_data.is_empty() {
+        return Ok(0); // No dataset to learn style from
+    }
+
+    // 2. Get all uncategorized photos that have CLIP embeddings
+    let uncategorized = db::get_media_items(
+        &conn,
+        &project_id,
+        None,
+        None,
+        true, // uncategorized only
+        None,
+        None,
+        None,
+        "name",
+        "asc",
+        0,
+        100000,
+    ).map_err(|e| e.to_string())?;
+
+    let mut trained_count = 0;
+    for photo in &uncategorized {
+        if let Ok(Some(embedding)) = db::get_embedding(&conn, &photo.id) {
+            // Predict style using KNN classification
+            let (predicted_cat, confidence) = ai::predict_user_style_knn(&embedding, &labeled_data, 5);
+            
+            let reasoning = format!(
+                "Learn My Style recommendation: {} (Confidence: {:.0}%)",
+                if predicted_cat == 2 { "KEEP" } else { "DISCARD" },
+                confidence * 100.0
+            );
+
+            // Non-destructively write recommendation to reasoning & confidence, and set category suggestion
+            conn.execute(
+                "UPDATE media_items SET 
+                    ai_confidence = ?1,
+                    ai_reasoning = ?2
+                 WHERE id = ?3",
+                params![confidence, reasoning, photo.id],
+            ).ok();
+
+            // Set color label: green for predicted KEEP, red for predicted DISCARD
+            if confidence > 0.80 {
+                let color = if predicted_cat == 2 { "green" } else { "red" };
+                db::set_color_label(&conn, &photo.id, Some(color)).ok();
+            }
+
+            trained_count += 1;
+        }
+    }
+
+    Ok(trained_count)
+}
+
+#[tauri::command]
+pub fn query_duplicate_groups(
+    state: tauri::State<'_, DbState>,
+    project_id: String,
+) -> Result<Vec<DuplicateGroup>, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+
+    // Query distinct group IDs
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT ai_duplicate_group_id 
+         FROM media_items 
+         WHERE project_id = ?1 AND ai_duplicate_group_id IS NOT NULL",
+    ).map_err(|e| e.to_string())?;
+
+    let group_ids = stmt.query_map(params![project_id], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let mut duplicate_groups = Vec::new();
+    for group_id in group_ids {
+        // Query items for this duplicate group
+        let mut item_stmt = conn.prepare(
+            "SELECT id, project_id, file_path, file_name, file_type, file_size,
+                    width, height, category_id, star_rating, color_label,
+                    thumbnail_path, preview_path, exif_json, file_hash, date_taken,
+                    adjustments, applied_preset, created_at, updated_at,
+                    ai_aesthetic_score, ai_technical_score, ai_overall_score,
+                    ai_confidence, ai_face_count, ai_blink_detected,
+                    ai_is_duplicate, ai_duplicate_group_id, ai_reasoning
+             FROM media_items 
+             WHERE ai_duplicate_group_id = ?1
+             ORDER BY ai_overall_score DESC",
+        ).map_err(|e| e.to_string())?;
+
+        let items = item_stmt.query_map(params![group_id], |row| {
+            Ok(MediaItem {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                file_type: row.get(4)?,
+                file_size: row.get(5)?,
+                width: row.get(6)?,
+                height: row.get(7)?,
+                category_id: row.get(8)?,
+                star_rating: row.get(9)?,
+                color_label: row.get(10)?,
+                thumbnail_path: row.get(11)?,
+                preview_path: row.get(12)?,
+                exif_json: row.get(13)?,
+                file_hash: row.get(14)?,
+                date_taken: row.get(15)?,
+                adjustments: row.get(16)?,
+                applied_preset: row.get(17)?,
+                created_at: row.get(18)?,
+                updated_at: row.get(19)?,
+                ai_aesthetic_score: row.get(20)?,
+                ai_technical_score: row.get(21)?,
+                ai_overall_score: row.get(22)?,
+                ai_confidence: row.get(23)?,
+                ai_face_count: row.get(24)?,
+                ai_blink_detected: row.get(25)?,
+                ai_is_duplicate: row.get(26)?,
+                ai_duplicate_group_id: row.get(27)?,
+                ai_reasoning: row.get(28)?,
+            })
+        }).map_err(|e| e.to_string())?
+        .collect::<Result<Vec<MediaItem>, _>>()
+        .map_err(|e| e.to_string())?;
+
+        duplicate_groups.push(DuplicateGroup { group_id, items });
+    }
+
+    Ok(duplicate_groups)
+}
+
+#[tauri::command]
+pub async fn query_ollama_vision(
+    image_base64: String,
+    model: String,
+    prompt: String,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    
+    // Construct request payload matching Ollama generate schema
+    let payload = serde_json::json!({
+        "model": model,
+        "prompt": prompt,
+        "stream": false,
+        "images": [image_base64]
+    });
+
+    let res = client.post("http://localhost:11434/api/generate")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to local Ollama service: {}", e))?;
+
+    if !res.status().is_success() {
+        return Err(format!("Ollama API error: Status {}", res.status()));
+    }
+
+    let data = res.json::<serde_json::Value>().await
+        .map_err(|e| format!("Failed to parse response from Ollama: {}", e))?;
+
+    let response_text = data["response"].as_str()
+        .ok_or_else(|| "Ollama response did not contain 'response' field".to_string())?;
+
+    Ok(response_text.to_string())
+}
+
+#[tauri::command]
+pub async fn query_nvidia_nim_vision(
+    image_base64: String,
+    model: String,
+    prompt: String,
+    api_key: String,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    
+    let image_url = if image_base64.starts_with("data:") {
+        image_base64
+    } else {
+        format!("data:image/jpeg;base64,{}", image_base64)
+    };
+
+    let payload = serde_json::json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_url
+                        }
+                    }
+                ]
+            }
+        ],
+        "max_tokens": 512,
+        "temperature": 0.2
+    });
+
+    let res = client.post("https://integrate.api.nvidia.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to NVIDIA NIM service: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let err_body = res.text().await.unwrap_or_default();
+        return Err(format!("NVIDIA NIM API error: Status {}. Details: {}", status, err_body));
+    }
+
+    let data = res.json::<serde_json::Value>().await
+        .map_err(|e| format!("Failed to parse response from NVIDIA NIM: {}", e))?;
+
+    let response_text = data["choices"][0]["message"]["content"].as_str()
+        .ok_or_else(|| "NVIDIA NIM response did not contain message content".to_string())?;
+
+    Ok(response_text.to_string())
+}
+
 

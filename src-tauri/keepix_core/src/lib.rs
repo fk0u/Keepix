@@ -3,6 +3,7 @@ pub mod db;
 pub mod metadata;
 pub mod scanner;
 pub mod thumbnail;
+pub mod ai;
 
 /// A generic progress reporting interface for background scanning and thumbnailing operations.
 pub trait ProgressReporter: Send + Sync + Clone + 'static {

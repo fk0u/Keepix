@@ -1,5 +1,9 @@
 mod commands;
 
+#[cfg(target_env = "msvc")]
+#[link(name = "msvcprt")]
+extern "C" {}
+
 use keepix_core::db::DbState;
 use keepix_core::cache::CacheState;
 use std::sync::Mutex;
@@ -72,6 +76,14 @@ pub fn run() {
             // Video processing
             commands::save_video_metadata,
             commands::mark_video_unsupported,
+            // Local AI Culling & Style Workstation
+            commands::check_ai_models_status,
+            commands::download_ai_models,
+            commands::run_local_ai_cull,
+            commands::train_and_predict_style,
+            commands::query_duplicate_groups,
+            commands::query_ollama_vision,
+            commands::query_nvidia_nim_vision,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepix");

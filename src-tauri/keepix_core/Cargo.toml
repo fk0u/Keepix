@@ -38,3 +38,11 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 log = "0.4"
+
+# ONNX Runtime & Machine Learning
+ort = { version = "2.0.0-rc.9", features = ["copy-dylibs", "load-dynamic"] }
+ndarray = "0.17"
+
+# Network client for downloading model files
+reqwest = { version = "0.12", features = ["blocking", "stream", "json"] }
+

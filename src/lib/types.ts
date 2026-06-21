@@ -35,6 +35,16 @@ export interface MediaItem {
   applied_preset: string | null;
   created_at: string;
   updated_at: string;
+  // AI culling properties
+  ai_aesthetic_score: number | null;
+  ai_technical_score: number | null;
+  ai_overall_score: number | null;
+  ai_confidence: number | null;
+  ai_face_count: number | null;
+  ai_blink_detected: number | null;
+  ai_is_duplicate: number | null;
+  ai_duplicate_group_id: string | null;
+  ai_reasoning: string | null;
 }
 
 /** Category definition */

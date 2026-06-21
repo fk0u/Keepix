@@ -43,6 +43,16 @@ pub struct MediaItem {
     pub applied_preset: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    // AI scoring columns
+    pub ai_aesthetic_score: Option<f64>,
+    pub ai_technical_score: Option<f64>,
+    pub ai_overall_score: Option<f64>,
+    pub ai_confidence: Option<f64>,
+    pub ai_face_count: Option<i32>,
+    pub ai_blink_detected: Option<i32>,
+    pub ai_is_duplicate: Option<i32>,
+    pub ai_duplicate_group_id: Option<String>,
+    pub ai_reasoning: Option<String>,
 }
 
 /// Category definition
@@ -180,6 +190,33 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             );
 
             PRAGMA user_version = 2;
+            ",
+        )?;
+    }
+
+    if user_version < 3 {
+        conn.execute_batch(
+            "
+            ALTER TABLE media_items ADD COLUMN ai_aesthetic_score REAL;
+            ALTER TABLE media_items ADD COLUMN ai_technical_score REAL;
+            ALTER TABLE media_items ADD COLUMN ai_overall_score REAL;
+            ALTER TABLE media_items ADD COLUMN ai_confidence REAL;
+            ALTER TABLE media_items ADD COLUMN ai_face_count INTEGER;
+            ALTER TABLE media_items ADD COLUMN ai_blink_detected INTEGER;
+            ALTER TABLE media_items ADD COLUMN ai_is_duplicate INTEGER DEFAULT 0;
+            ALTER TABLE media_items ADD COLUMN ai_duplicate_group_id TEXT;
+            ALTER TABLE media_items ADD COLUMN ai_reasoning TEXT;
+
+            CREATE TABLE IF NOT EXISTS media_embeddings (
+                media_id TEXT PRIMARY KEY,
+                embedding BLOB NOT NULL,
+                FOREIGN KEY (media_id) REFERENCES media_items(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_ai_is_duplicate ON media_items(ai_is_duplicate);
+            CREATE INDEX IF NOT EXISTS idx_media_ai_overall_score ON media_items(ai_overall_score);
+
+            PRAGMA user_version = 3;
             ",
         )?;
     }
@@ -336,7 +373,10 @@ pub fn get_media_items(
         "SELECT id, project_id, file_path, file_name, file_type, file_size,
                 width, height, category_id, star_rating, color_label,
                 thumbnail_path, preview_path, exif_json, file_hash, date_taken,
-                adjustments, applied_preset, created_at, updated_at
+                adjustments, applied_preset, created_at, updated_at,
+                ai_aesthetic_score, ai_technical_score, ai_overall_score,
+                ai_confidence, ai_face_count, ai_blink_detected,
+                ai_is_duplicate, ai_duplicate_group_id, ai_reasoning
          FROM media_items 
          WHERE project_id = :project_id
            AND (:category_filter IS NULL OR category_id = :category_filter)
@@ -386,6 +426,15 @@ pub fn get_media_items(
                     applied_preset: row.get(17)?,
                     created_at: row.get(18)?,
                     updated_at: row.get(19)?,
+                    ai_aesthetic_score: row.get(20)?,
+                    ai_technical_score: row.get(21)?,
+                    ai_overall_score: row.get(22)?,
+                    ai_confidence: row.get(23)?,
+                    ai_face_count: row.get(24)?,
+                    ai_blink_detected: row.get(25)?,
+                    ai_is_duplicate: row.get(26)?,
+                    ai_duplicate_group_id: row.get(27)?,
+                    ai_reasoning: row.get(28)?,
                 })
             },
         )?
@@ -580,7 +629,10 @@ pub fn get_media_item(conn: &Connection, media_id: &str) -> Result<MediaItem> {
         "SELECT id, project_id, file_path, file_name, file_type, file_size,
                 width, height, category_id, star_rating, color_label,
                 thumbnail_path, preview_path, exif_json, file_hash, date_taken,
-                adjustments, applied_preset, created_at, updated_at
+                adjustments, applied_preset, created_at, updated_at,
+                ai_aesthetic_score, ai_technical_score, ai_overall_score,
+                ai_confidence, ai_face_count, ai_blink_detected,
+                ai_is_duplicate, ai_duplicate_group_id, ai_reasoning
          FROM media_items WHERE id = ?1",
         params![media_id],
         |row| {
@@ -605,6 +657,15 @@ pub fn get_media_item(conn: &Connection, media_id: &str) -> Result<MediaItem> {
                 applied_preset: row.get(17)?,
                 created_at: row.get(18)?,
                 updated_at: row.get(19)?,
+                ai_aesthetic_score: row.get(20)?,
+                ai_technical_score: row.get(21)?,
+                ai_overall_score: row.get(22)?,
+                ai_confidence: row.get(23)?,
+                ai_face_count: row.get(24)?,
+                ai_blink_detected: row.get(25)?,
+                ai_is_duplicate: row.get(26)?,
+                ai_duplicate_group_id: row.get(27)?,
+                ai_reasoning: row.get(28)?,
             })
         },
     )
@@ -718,6 +779,127 @@ pub fn get_unique_exif_metadata(conn: &Connection, project_id: &str) -> Result<E
         lens_models,
         color_labels,
     })
+}
+
+// ============================================================================
+// AI Scoring & Embeddings
+// ============================================================================
+
+/// Update a media item's AI score metrics
+pub fn update_media_ai_scores(
+    conn: &Connection,
+    media_id: &str,
+    aesthetic: Option<f64>,
+    technical: Option<f64>,
+    overall: Option<f64>,
+    confidence: Option<f64>,
+    face_count: Option<i32>,
+    blink_detected: Option<i32>,
+    is_duplicate: Option<i32>,
+    duplicate_group_id: Option<&str>,
+    reasoning: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE media_items SET 
+            ai_aesthetic_score = ?1,
+            ai_technical_score = ?2,
+            ai_overall_score = ?3,
+            ai_confidence = ?4,
+            ai_face_count = ?5,
+            ai_blink_detected = ?6,
+            ai_is_duplicate = ?7,
+            ai_duplicate_group_id = ?8,
+            ai_reasoning = ?9,
+            updated_at = datetime('now')
+         WHERE id = ?10",
+        params![
+            aesthetic,
+            technical,
+            overall,
+            confidence,
+            face_count,
+            blink_detected,
+            is_duplicate,
+            duplicate_group_id,
+            reasoning,
+            media_id
+        ],
+    )?;
+    Ok(())
+}
+
+/// Insert a feature embedding vector for a media item
+pub fn insert_embedding(conn: &Connection, media_id: &str, embedding: &[f32]) -> Result<()> {
+    let bytes: Vec<u8> = embedding
+        .iter()
+        .flat_map(|val| val.to_ne_bytes().to_vec())
+        .collect();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO media_embeddings (media_id, embedding) VALUES (?1, ?2)",
+        params![media_id, bytes],
+    )?;
+    Ok(())
+}
+
+/// Retrieve the feature embedding vector for a media item
+pub fn get_embedding(conn: &Connection, media_id: &str) -> Result<Option<Vec<f32>>> {
+    let bytes: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT embedding FROM media_embeddings WHERE media_id = ?1",
+            params![media_id],
+            |row| row.get(0),
+        )
+        .ok();
+
+    if let Some(bytes) = bytes {
+        if bytes.len() % 4 == 0 {
+            let embedding = bytes
+                .chunks_exact(4)
+                .map(|chunk| {
+                    let array: [u8; 4] = chunk.try_into().unwrap_or([0; 4]);
+                    f32::from_ne_bytes(array)
+                })
+                .collect();
+            return Ok(Some(embedding));
+        }
+    }
+    Ok(None)
+}
+
+/// Get all labeled embeddings (Best vs Trash) in a project for KNN modeling
+pub fn get_labeled_embeddings(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Vec<(String, i32, Vec<f32>)>> {
+    let mut stmt = conn.prepare(
+        "SELECT m.id, m.category_id, e.embedding 
+         FROM media_items m
+         JOIN media_embeddings e ON m.id = e.media_id
+         WHERE m.project_id = ?1 AND m.category_id IN (1, 2)",
+    )?;
+
+    let rows = stmt.query_map(params![project_id], |row| {
+        let id: String = row.get(0)?;
+        let cat_id: i32 = row.get(1)?;
+        let bytes: Vec<u8> = row.get(2)?;
+        let embedding = bytes
+            .chunks_exact(4)
+            .map(|chunk| {
+                let array: [u8; 4] = chunk.try_into().unwrap_or([0; 4]);
+                f32::from_ne_bytes(array)
+            })
+            .collect();
+        Ok((id, cat_id, embedding))
+    })?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        if let Ok(val) = row {
+            result.push(val);
+        }
+    }
+    Ok(result)
 }
 
 // ============================================================================
