@@ -51,13 +51,13 @@ pub struct PaginatedMedia {
 // ============================================================================
 
 #[tauri::command]
-pub fn get_projects(state: tauri::State<'_, DbState>) -> Result<Vec<db::Project>, String> {
+pub async fn get_projects(state: tauri::State<'_, DbState>) -> Result<Vec<db::Project>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     db::list_projects(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn create_project(
+pub async fn create_project(
     state: tauri::State<'_, DbState>,
     name: String,
     root_path: String,
@@ -68,13 +68,13 @@ pub fn create_project(
 }
 
 #[tauri::command]
-pub fn delete_project(state: tauri::State<'_, DbState>, project_id: String) -> Result<(), String> {
+pub async fn delete_project(state: tauri::State<'_, DbState>, project_id: String) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     db::delete_project(&conn, &project_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_project(
+pub async fn get_project(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<db::Project, String> {
@@ -338,7 +338,7 @@ pub async fn scan_folder(
 // ============================================================================
 
 #[tauri::command]
-pub fn get_media_items(
+pub async fn get_media_items(
     state: tauri::State<'_, DbState>,
     project_id: String,
     page: i64,
@@ -392,7 +392,7 @@ pub fn get_media_items(
 }
 
 #[tauri::command]
-pub fn get_exif_filters(
+pub async fn get_exif_filters(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<db::ExifFilters, String> {
@@ -401,7 +401,7 @@ pub fn get_exif_filters(
 }
 
 #[tauri::command]
-pub fn get_single_media(
+pub async fn get_single_media(
     state: tauri::State<'_, DbState>,
     media_id: String,
 ) -> Result<MediaItem, String> {
@@ -410,7 +410,7 @@ pub fn get_single_media(
 }
 
 #[tauri::command]
-pub fn set_category(
+pub async fn set_category(
     state: tauri::State<'_, DbState>,
     media_id: String,
     project_id: String,
@@ -439,7 +439,7 @@ pub fn set_category(
 }
 
 #[tauri::command]
-pub fn set_star_rating(
+pub async fn set_star_rating(
     state: tauri::State<'_, DbState>,
     media_id: String,
     rating: i32,
@@ -449,7 +449,7 @@ pub fn set_star_rating(
 }
 
 #[tauri::command]
-pub fn set_color_label(
+pub async fn set_color_label(
     state: tauri::State<'_, DbState>,
     media_id: String,
     color: Option<String>,
@@ -459,7 +459,7 @@ pub fn set_color_label(
 }
 
 #[tauri::command]
-pub fn get_metadata(
+pub async fn get_metadata(
     state: tauri::State<'_, DbState>,
     media_id: String,
 ) -> Result<metadata::ExifData, String> {
@@ -501,7 +501,7 @@ pub fn get_metadata(
 // ============================================================================
 
 #[tauri::command]
-pub fn undo_last_action(
+pub async fn undo_last_action(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<Option<String>, String> {
@@ -529,13 +529,13 @@ pub fn undo_last_action(
 // ============================================================================
 
 #[tauri::command]
-pub fn get_categories(state: tauri::State<'_, DbState>) -> Result<Vec<db::Category>, String> {
+pub async fn get_categories(state: tauri::State<'_, DbState>) -> Result<Vec<db::Category>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     db::get_categories(&conn).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_category_stats(
+pub async fn get_category_stats(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<Vec<db::CategoryStats>, String> {
@@ -548,7 +548,7 @@ pub fn get_category_stats(
 // ============================================================================
 
 #[tauri::command]
-pub fn batch_set_category(
+pub async fn batch_set_category(
     state: tauri::State<'_, DbState>,
     media_ids: Vec<String>,
     project_id: String,
@@ -807,7 +807,7 @@ use keepix_core::cache;
 /// Read an image file and return it as a base64-encoded data URI.
 /// Uses the in-memory LRU cache for high performance.
 #[tauri::command]
-pub fn read_image_base64(
+pub async fn read_image_base64(
     cache_state: tauri::State<'_, cache::CacheState>,
     path: String,
 ) -> Result<String, String> {
@@ -817,7 +817,7 @@ pub fn read_image_base64(
 /// Batch-preload images into the LRU cache for faster future access.
 /// Returns the number of images successfully cached.
 #[tauri::command]
-pub fn preload_images(
+pub async fn preload_images(
     cache_state: tauri::State<'_, cache::CacheState>,
     paths: Vec<String>,
 ) -> Result<usize, String> {
@@ -826,10 +826,20 @@ pub fn preload_images(
 
 /// Clear the entire image cache (useful when switching projects).
 #[tauri::command]
-pub fn clear_image_cache(
+pub async fn clear_image_cache(
     cache_state: tauri::State<'_, cache::CacheState>,
 ) -> Result<(), String> {
     cache::clear(&cache_state);
+    Ok(())
+}
+
+/// Update the image cache capacity dynamically at runtime.
+#[tauri::command]
+pub async fn update_cache_capacity(
+    cache_state: tauri::State<'_, cache::CacheState>,
+    capacity: usize,
+) -> Result<(), String> {
+    cache_state.resize(capacity);
     Ok(())
 }
 
@@ -838,7 +848,7 @@ pub fn clear_image_cache(
 // ============================================================================
 
 #[tauri::command]
-pub fn save_adjustments(
+pub async fn save_adjustments(
     db_state: tauri::State<'_, db::DbState>,
     media_id: String,
     adjustments_json: Option<String>,
@@ -848,7 +858,7 @@ pub fn save_adjustments(
 }
 
 #[tauri::command]
-pub fn save_applied_preset(
+pub async fn save_applied_preset(
     db_state: tauri::State<'_, db::DbState>,
     media_id: String,
     preset_name: Option<String>,
@@ -858,7 +868,7 @@ pub fn save_applied_preset(
 }
 
 #[tauri::command]
-pub fn get_setting(
+pub async fn get_setting(
     db_state: tauri::State<'_, db::DbState>,
     key: String,
 ) -> Result<Option<String>, String> {
@@ -867,7 +877,7 @@ pub fn get_setting(
 }
 
 #[tauri::command]
-pub fn set_setting(
+pub async fn set_setting(
     db_state: tauri::State<'_, db::DbState>,
     key: String,
     value: String,
@@ -890,7 +900,7 @@ pub fn convert_file_path(path: String) -> String {
 // ============================================================================
 
 #[tauri::command]
-pub fn save_video_metadata(
+pub async fn save_video_metadata(
     db_state: tauri::State<'_, db::DbState>,
     media_id: String,
     width: i32,
@@ -955,7 +965,7 @@ pub fn save_video_metadata(
 }
 
 #[tauri::command]
-pub fn mark_video_unsupported(
+pub async fn mark_video_unsupported(
     db_state: tauri::State<'_, db::DbState>,
     media_id: String,
 ) -> Result<(), String> {
@@ -1012,7 +1022,7 @@ fn extract_xmp_from_file(path: &Path) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn extract_xmp_preset(file_path: String) -> Result<String, String> {
+pub async fn extract_xmp_preset(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err("File does not exist".to_string());
@@ -1049,13 +1059,13 @@ pub struct DuplicateGroup {
 }
 
 #[tauri::command]
-pub fn check_ai_models_status(app: AppHandle) -> Result<bool, String> {
+pub async fn check_ai_models_status(app: AppHandle) -> Result<bool, String> {
     let models_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
     Ok(ai::ModelManager::check_models_present(&models_dir))
 }
 
 #[tauri::command]
-pub fn download_ai_models(app: AppHandle) -> Result<(), String> {
+pub async fn download_ai_models(app: AppHandle) -> Result<(), String> {
     let models_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("models");
     let app_clone = app.clone();
     std::thread::spawn(move || {
@@ -1394,7 +1404,7 @@ pub async fn run_local_ai_cull(
 }
 
 #[tauri::command]
-pub fn train_and_predict_style(
+pub async fn train_and_predict_style(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<usize, String> {
@@ -1457,7 +1467,7 @@ pub fn train_and_predict_style(
 }
 
 #[tauri::command]
-pub fn query_duplicate_groups(
+pub async fn query_duplicate_groups(
     state: tauri::State<'_, DbState>,
     project_id: String,
 ) -> Result<Vec<DuplicateGroup>, String> {

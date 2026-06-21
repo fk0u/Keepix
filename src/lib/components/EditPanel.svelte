@@ -5,7 +5,7 @@
   import { currentItem, displayItems, mediaItems } from '$lib/stores/media';
   import { toast } from '$lib/stores/toast';
   import { get } from 'svelte/store';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { editPanelCollapsed } from '$lib/stores/ui';
   import {
@@ -31,33 +31,40 @@
   // Load adjustments when item changes
   let prevItemId = '';
   $effect(() => {
-    if (item) {
-      const currentAdjStr = JSON.stringify(adjustments);
-      const isDifferentItem = item.id !== prevItemId;
-      const isExternalChange = item.adjustments !== currentAdjStr;
+    const itemProp = item;
+    const itemId = item?.id;
+    const itemAdj = item?.adjustments;
+    const itemPreset = item?.applied_preset;
 
-      if (isDifferentItem || isExternalChange) {
-        prevItemId = item.id;
-        if (item.adjustments) {
-          try {
-            const parsed = JSON.parse(item.adjustments);
-            adjustments = { ...DEFAULT_ADJUSTMENTS, ...parsed };
-          } catch {
+    untrack(() => {
+      if (itemProp) {
+        const currentAdjStr = JSON.stringify(adjustments);
+        const isDifferentItem = itemProp.id !== prevItemId;
+        const isExternalChange = itemProp.adjustments !== currentAdjStr;
+
+        if (isDifferentItem || isExternalChange) {
+          prevItemId = itemProp.id;
+          if (itemProp.adjustments) {
+            try {
+              const parsed = JSON.parse(itemProp.adjustments);
+              adjustments = { ...DEFAULT_ADJUSTMENTS, ...parsed };
+            } catch {
+              resetAdjustments();
+            }
+          } else {
             resetAdjustments();
           }
-        } else {
-          resetAdjustments();
+          activePreset = itemProp.applied_preset || null;
+          if (isDifferentItem) {
+            healingMode = false;
+          }
         }
-        activePreset = item.applied_preset || null;
-        if (isDifferentItem) {
-          healingMode = false;
-        }
+      } else {
+        resetAdjustments();
+        activePreset = null;
+        prevItemId = '';
       }
-    } else {
-      resetAdjustments();
-      activePreset = null;
-      prevItemId = '';
-    }
+    });
   });
 
   function resetAdjustments() {

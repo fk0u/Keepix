@@ -7,7 +7,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 /** LRU Cache capacity for frontend-side data URIs */
-const FRONTEND_CACHE_CAPACITY = 500;
+const FRONTEND_CACHE_CAPACITY = 40;
 
 /** In-flight request deduplication map */
 const inflight = new Map<string, Promise<string>>();
@@ -121,10 +121,9 @@ export async function prefetchImages(paths: (string | null)[]): Promise<void> {
   try {
     // Tell Rust backend to preload into its LRU cache
     await invoke('preload_images', { paths: uncached });
-
-    // Then fetch them into frontend cache (batch, non-blocking)
-    const promises = uncached.map(p => getImageDataUri(p));
-    await Promise.allSettled(promises);
+    // We no longer trigger a concurrent batch of getImageDataUri calls here.
+    // This stops the massive transfer of base64 data URIs over Tauri's IPC during scrolling.
+    // The browser will fetch images on demand when rendered via lazy loading, hitting the pre-encoded backend cache.
   } catch (err) {
     console.warn('Prefetch failed:', err);
   }

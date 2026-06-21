@@ -25,13 +25,18 @@ pub fn run() {
             let conn = keepix_core::db::init_db(&app_data_dir)
                 .expect("Failed to initialize database");
 
+            let cache_limit = keepix_core::db::get_setting(&conn, "cache_limit")
+                .unwrap_or(None)
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(300);
+
             // Store the database connection in Tauri's managed state
             app.manage(DbState {
                 conn: Mutex::new(conn),
             });
 
             // Initialize the image cache
-            app.manage(CacheState::new());
+            app.manage(CacheState::new(cache_limit));
 
             log::info!("Keepix initialized. Data dir: {:?}", app_data_dir);
 
@@ -65,6 +70,7 @@ pub fn run() {
             commands::read_image_base64,
             commands::preload_images,
             commands::clear_image_cache,
+            commands::update_cache_capacity,
             // Settings & Adjustments
             commands::save_adjustments,
             commands::save_applied_preset,

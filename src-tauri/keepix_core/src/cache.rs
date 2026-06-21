@@ -7,7 +7,7 @@ use base64::Engine as _;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// Default cache capacity (number of images kept in memory)
 const DEFAULT_CAPACITY: usize = 300;
@@ -17,19 +17,26 @@ pub struct CacheState {
     pub cache: Mutex<LruCache<String, CachedImage>>,
 }
 
-/// A cached image entry containing the raw bytes and MIME type
+/// A cached image entry containing the pre-encoded base64 data URI string
 #[derive(Clone)]
 pub struct CachedImage {
-    pub data: Vec<u8>,
-    pub mime: String,
+    pub data_uri: Arc<String>,
 }
 
 impl CacheState {
-    pub fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
+        let cap = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(DEFAULT_CAPACITY).unwrap());
         Self {
-            cache: Mutex::new(LruCache::new(
-                NonZeroUsize::new(DEFAULT_CAPACITY).unwrap(),
-            )),
+            cache: Mutex::new(LruCache::new(cap)),
+        }
+    }
+
+    /// Resize the cache dynamically at runtime
+    pub fn resize(&self, capacity: usize) {
+        if let Ok(mut lru) = self.cache.lock() {
+            if let Some(cap) = NonZeroUsize::new(capacity) {
+                lru.resize(cap);
+            }
         }
     }
 }
@@ -59,7 +66,7 @@ fn detect_mime(path: &str) -> &'static str {
 }
 
 /// Read an image file and return a base64-encoded data URI.
-/// Uses the LRU cache to avoid redundant disk I/O.
+/// Uses the LRU cache to avoid redundant disk I/O and base64 encoding overhead.
 pub fn read_image_as_data_uri(cache: &CacheState, file_path: &str) -> Result<String, String> {
     let normalized = file_path.replace('\\', "/");
 
@@ -71,48 +78,28 @@ pub fn read_image_as_data_uri(cache: &CacheState, file_path: &str) -> Result<Str
             .map_err(|e| format!("Cache lock error: {}", e))?;
 
         if let Some(entry) = lru.get(&normalized) {
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&entry.data);
-            return Ok(format!("data:{};base64,{}", entry.mime, b64));
+            return Ok((*entry.data_uri).clone());
         }
     }
 
     // Cache miss — read from disk
     let path = Path::new(&normalized);
-    if !path.exists() {
-        // Also try the original path (with backslashes on Windows)
+    let resolved_path = if path.exists() {
+        path
+    } else {
         let orig_path = Path::new(file_path);
         if !orig_path.exists() {
             return Err(format!("File not found: {}", file_path));
         }
-        let data = std::fs::read(orig_path)
-            .map_err(|e| format!("Failed to read {}: {}", file_path, e))?;
-        let mime = detect_mime(file_path).to_string();
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-        let uri = format!("data:{};base64,{}", mime, b64);
+        orig_path
+    };
 
-        // Insert into cache
-        {
-            let mut lru = cache
-                .cache
-                .lock()
-                .map_err(|e| format!("Cache lock error: {}", e))?;
-            lru.put(
-                normalized,
-                CachedImage {
-                    data,
-                    mime,
-                },
-            );
-        }
-
-        return Ok(uri);
-    }
-
-    let data =
-        std::fs::read(&normalized).map_err(|e| format!("Failed to read {}: {}", normalized, e))?;
-    let mime = detect_mime(&normalized).to_string();
+    let data = std::fs::read(resolved_path)
+        .map_err(|e| format!("Failed to read {}: {}", file_path, e))?;
+    let mime = detect_mime(file_path).to_string();
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
     let uri = format!("data:{};base64,{}", mime, b64);
+    let cached_uri = Arc::new(uri);
 
     // Insert into cache
     {
@@ -123,17 +110,16 @@ pub fn read_image_as_data_uri(cache: &CacheState, file_path: &str) -> Result<Str
         lru.put(
             normalized,
             CachedImage {
-                data,
-                mime,
+                data_uri: Arc::clone(&cached_uri),
             },
         );
     }
 
-    Ok(uri)
+    Ok((*cached_uri).clone())
 }
 
 /// Preload multiple images into cache in parallel using rayon.
-/// Returns the number of images successfully cached.
+/// Performs file reading and base64 encoding on rayon threadpool to avoid blocking main thread.
 pub fn preload_batch(cache: &CacheState, paths: &[String]) -> usize {
     use rayon::prelude::*;
 
@@ -148,7 +134,14 @@ pub fn preload_batch(cache: &CacheState, paths: &[String]) -> usize {
             match std::fs::read(path) {
                 Ok(data) => {
                     let mime = detect_mime(p).to_string();
-                    (normalized, Some(CachedImage { data, mime }))
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                    let uri = format!("data:{};base64,{}", mime, b64);
+                    (
+                        normalized,
+                        Some(CachedImage {
+                            data_uri: Arc::new(uri),
+                        }),
+                    )
                 }
                 Err(_) => (normalized, None),
             }

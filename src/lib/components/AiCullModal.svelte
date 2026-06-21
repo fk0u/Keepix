@@ -63,19 +63,7 @@
     duplicates: 0
   });
 
-  onMount(async () => {
-    // Check if models exist
-    try {
-      hasModels = await invoke<boolean>('check_ai_models_status');
-      if (!hasModels) {
-        // Automatically start download of standard model weights
-        startDownloadingModels();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Load VLM values from localStorage
+  function loadLocalSettings() {
     const savedEnableVlm = localStorage.getItem('keepix_enable_vlm');
     if (savedEnableVlm) enableVlm = savedEnableVlm === 'true';
     vlmProvider = (localStorage.getItem('keepix_vlm_provider') as any) || 'ollama';
@@ -83,9 +71,40 @@
     ollamaModel = localStorage.getItem('keepix_ollama_model') || 'llava';
     nvidiaApiKey = localStorage.getItem('keepix_nvidia_api_key') || (import.meta.env as any).VITE_NVIDIA_API_KEY || '';
     nvidiaModel = localStorage.getItem('keepix_nvidia_model') || 'moonshotai/kimi-k2.6';
+
+    const aesW = localStorage.getItem('keepix_default_aesthetic_weight');
+    if (aesW) aestheticWeight = parseFloat(aesW);
+    const techW = localStorage.getItem('keepix_default_technical_weight');
+    if (techW) technicalWeight = parseFloat(techW);
+    const faceW = localStorage.getItem('keepix_default_face_weight');
+    if (faceW) faceWeight = parseFloat(faceW);
+    const dupT = localStorage.getItem('keepix_default_duplicate_threshold');
+    if (dupT) duplicateThreshold = parseFloat(dupT);
+  }
+
+  onMount(() => {
+    // Check if models exist
+    invoke<boolean>('check_ai_models_status')
+      .then((res) => {
+        hasModels = res;
+        if (!hasModels) {
+          // Automatically start download of standard model weights
+          startDownloadingModels();
+        }
+      })
+      .catch((e) => {
+        console.error(e);
+      });
+
+    loadLocalSettings();
+    window.addEventListener('settings-updated', loadLocalSettings);
     
     // Fetch manual dataset size (Best vs Trash counts)
     updateStyleDatasetStats();
+
+    return () => {
+      window.removeEventListener('settings-updated', loadLocalSettings);
+    };
   });
 
   $effect(() => {

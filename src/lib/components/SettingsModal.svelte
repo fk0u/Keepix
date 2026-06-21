@@ -9,7 +9,7 @@
   let { show = false, onClose }: { show?: boolean; onClose: () => void } = $props();
 
   // Settings State
-  let activeTab = $state<'general' | 'performance' | 'diagnostics' | 'theme'>('general');
+  let activeTab = $state<'general' | 'performance' | 'ai' | 'diagnostics' | 'theme'>('general');
   let currentLang = $state<Language>($locale);
   let cacheLimit = $state(300);
   let themeSelected = $state('resolve-dark');
@@ -24,6 +24,33 @@
   let threadPriority = $state('medium');
   let allocMode = $state('dynamic');
   let focusIntensity = $state(80);
+
+  // Caching Stats
+  let currentJsCacheSize = $state(0);
+
+  // General Preferences
+  let defaultViewMode = $state('grid');
+  let autoAdvanceCategory = $state(true);
+  let autoAdvanceRating = $state(true);
+  let autoAdvanceLabel = $state(true);
+  let defaultGridSize = $state(200);
+  let syncZoomDefault = $state(true);
+
+  // AI & VLM Preferences
+  let enableVlm = $state(false);
+  let vlmProvider = $state<'ollama' | 'nvidia_nim'>('ollama');
+  let ollamaUrl = $state('http://localhost:11434');
+  let ollamaModel = $state('llava');
+  let ollamaStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
+
+  let nvidiaApiKey = $state('');
+  let nvidiaModel = $state('moonshotai/kimi-k2.6');
+  let nvidiaStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
+
+  let aestheticWeight = $state(0.40);
+  let technicalWeight = $state(0.40);
+  let faceWeight = $state(0.20);
+  let duplicateThreshold = $state(0.92);
 
   // Live Hardware Specs
   let sysCores = $state(4);
@@ -94,6 +121,49 @@
 
           const valIntensity = await invoke<string | null>('get_setting', { key: 'focus_intensity' });
           if (valIntensity) focusIntensity = parseInt(valIntensity, 10) || 80;
+
+          // General settings
+          const valView = await invoke<string | null>('get_setting', { key: 'default_view_mode' });
+          if (valView) defaultViewMode = valView;
+          
+          const valAdvCat = await invoke<string | null>('get_setting', { key: 'auto_advance_category' });
+          if (valAdvCat) autoAdvanceCategory = valAdvCat === 'true';
+
+          const valAdvRat = await invoke<string | null>('get_setting', { key: 'auto_advance_rating' });
+          if (valAdvRat) autoAdvanceRating = valAdvRat === 'true';
+
+          const valAdvLab = await invoke<string | null>('get_setting', { key: 'auto_advance_label' });
+          if (valAdvLab) autoAdvanceLabel = valAdvLab === 'true';
+
+          const valGridSize = await invoke<string | null>('get_setting', { key: 'default_grid_size' });
+          if (valGridSize) defaultGridSize = parseInt(valGridSize, 10) || 200;
+
+          const valSyncZoom = await invoke<string | null>('get_setting', { key: 'sync_zoom_default' });
+          if (valSyncZoom) syncZoomDefault = valSyncZoom === 'true';
+
+          // Load VLM values from localStorage
+          const savedEnableVlm = localStorage.getItem('keepix_enable_vlm');
+          if (savedEnableVlm) enableVlm = savedEnableVlm === 'true';
+          vlmProvider = (localStorage.getItem('keepix_vlm_provider') as any) || 'ollama';
+          ollamaUrl = localStorage.getItem('keepix_ollama_url') || 'http://localhost:11434';
+          ollamaModel = localStorage.getItem('keepix_ollama_model') || 'llava';
+          nvidiaApiKey = localStorage.getItem('keepix_nvidia_api_key') || '';
+          nvidiaModel = localStorage.getItem('keepix_nvidia_model') || 'moonshotai/kimi-k2.6';
+          
+          // Load AI weights
+          const aesW = localStorage.getItem('keepix_default_aesthetic_weight');
+          if (aesW) aestheticWeight = parseFloat(aesW);
+          const techW = localStorage.getItem('keepix_default_technical_weight');
+          if (techW) technicalWeight = parseFloat(techW);
+          const faceW = localStorage.getItem('keepix_default_face_weight');
+          if (faceW) faceWeight = parseFloat(faceW);
+          const dupT = localStorage.getItem('keepix_default_duplicate_threshold');
+          if (dupT) duplicateThreshold = parseFloat(dupT);
+
+          // Get active JS cache size
+          import('$lib/services/image-cache').then(({ getCacheSize }) => {
+            currentJsCacheSize = getCacheSize();
+          });
         } catch (err) {
           console.error('Failed to load settings:', err);
         }
@@ -132,11 +202,71 @@
     }
   });
 
+  async function testOllamaConnection() {
+    ollamaStatus = 'testing';
+    try {
+      const res = await fetch(`${ollamaUrl}/api/tags`);
+      if (res.ok) {
+        ollamaStatus = 'online';
+        toast.success('Ollama Neural Node is online!');
+      } else {
+        ollamaStatus = 'offline';
+        toast.error('Ollama returned an error status.');
+      }
+    } catch (err) {
+      ollamaStatus = 'offline';
+      toast.error('Could not connect to Ollama. Make sure it is running.');
+    }
+  }
+
+  async function testNvidiaConnection() {
+    if (!nvidiaApiKey) {
+      toast.error('Please enter your NVIDIA API Key first.');
+      return;
+    }
+    nvidiaStatus = 'testing';
+    try {
+      const dummyGif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      const resp = await invoke<string>('query_nvidia_nim_vision', {
+        imageBase64: dummyGif,
+        model: nvidiaModel,
+        prompt: 'Say Connected',
+        apiKey: nvidiaApiKey
+      });
+      if (resp) {
+        nvidiaStatus = 'online';
+        toast.success(`NVIDIA NIM connected! Response: ${resp.trim()}`);
+      } else {
+        nvidiaStatus = 'offline';
+        toast.error('NVIDIA NIM returned an empty response.');
+      }
+    } catch (err: any) {
+      nvidiaStatus = 'offline';
+      toast.error(`NVIDIA NIM connection failed: ${err.message || err}`);
+    }
+  }
+
+  async function handleClearCache() {
+    try {
+      import('$lib/services/image-cache').then(async ({ clearImageCache }) => {
+        await clearImageCache();
+        currentJsCacheSize = 0;
+        toast.success($t('settings.cache.clear_success'));
+      });
+    } catch (err) {
+      console.error('Failed to clear image cache:', err);
+    }
+  }
+
   async function handleSave() {
     try {
       await setLanguage(currentLang);
       await setTheme(themeSelected);
       await invoke('set_setting', { key: 'cache_limit', value: cacheLimit.toString() });
+      
+      // Dynamic Rust cache resize command
+      await invoke('update_cache_capacity', { capacity: cacheLimit });
+
       await invoke('set_setting', { key: 'cpu_threads', value: cpuThreads.toString() });
       await invoke('set_setting', { key: 'gpu_accel', value: gpuAccel.toString() });
       await invoke('set_setting', { key: 'focus_color', value: focusColor });
@@ -148,7 +278,29 @@
       await invoke('set_setting', { key: 'thread_priority', value: threadPriority });
       await invoke('set_setting', { key: 'alloc_mode', value: allocMode });
       await invoke('set_setting', { key: 'focus_intensity', value: focusIntensity.toString() });
-      
+
+      // Save general settings
+      await invoke('set_setting', { key: 'default_view_mode', value: defaultViewMode });
+      await invoke('set_setting', { key: 'auto_advance_category', value: autoAdvanceCategory.toString() });
+      await invoke('set_setting', { key: 'auto_advance_rating', value: autoAdvanceRating.toString() });
+      await invoke('set_setting', { key: 'auto_advance_label', value: autoAdvanceLabel.toString() });
+      await invoke('set_setting', { key: 'default_grid_size', value: defaultGridSize.toString() });
+      await invoke('set_setting', { key: 'sync_zoom_default', value: syncZoomDefault.toString() });
+
+      // Save VLM values to localStorage
+      localStorage.setItem('keepix_enable_vlm', String(enableVlm));
+      localStorage.setItem('keepix_vlm_provider', vlmProvider);
+      localStorage.setItem('keepix_ollama_url', ollamaUrl);
+      localStorage.setItem('keepix_ollama_model', ollamaModel);
+      localStorage.setItem('keepix_nvidia_api_key', nvidiaApiKey);
+      localStorage.setItem('keepix_nvidia_model', nvidiaModel);
+
+      // Save AI culling defaults
+      localStorage.setItem('keepix_default_aesthetic_weight', aestheticWeight.toString());
+      localStorage.setItem('keepix_default_technical_weight', technicalWeight.toString());
+      localStorage.setItem('keepix_default_face_weight', faceWeight.toString());
+      localStorage.setItem('keepix_default_duplicate_threshold', duplicateThreshold.toString());
+
       // Dispatch events to active components in case values changed
       window.dispatchEvent(new CustomEvent('settings-updated'));
       toast.success($t('settings.save') + ' ' + $t('about.close'));
@@ -186,6 +338,9 @@
           <button class="tab-btn" class:active={activeTab === 'performance'} onclick={() => activeTab = 'performance'}>
             <span class="tab-icon">⚡</span> {$t('settings.tab.performance')}
           </button>
+          <button class="tab-btn" class:active={activeTab === 'ai'} onclick={() => activeTab = 'ai'}>
+            <span class="tab-icon">🤖</span> {$t('settings.tab.ai')}
+          </button>
           <button class="tab-btn" class:active={activeTab === 'diagnostics'} onclick={() => activeTab = 'diagnostics'}>
             <span class="tab-icon">📊</span> {$t('settings.tab.diagnostics')}
           </button>
@@ -210,6 +365,46 @@
                 </div>
               </div>
 
+              <div class="setting-group-grid">
+                <div class="setting-group">
+                  <h3>{$t('settings.general.default_view')}</h3>
+                  <div class="setting-row">
+                    <select bind:value={defaultViewMode} class="setting-select">
+                      <option value="grid">{$t('settings.general.default_view.grid')}</option>
+                      <option value="preview">{$t('settings.general.default_view.preview')}</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="setting-group">
+                  <h3>{$t('settings.general.grid_size')}</h3>
+                  <div class="setting-row">
+                    <div class="slider-container">
+                      <input type="range" min="120" max="300" step="10" bind:value={defaultGridSize} />
+                      <span class="slider-value">{defaultGridSize} px</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <h3>{$t('settings.general.auto_advance_options')}</h3>
+                <div class="setting-row flex-column-checkboxes">
+                  <label class="switch-label checkbox-label" for="auto-advance-cat">
+                    <input type="checkbox" id="auto-advance-cat" bind:checked={autoAdvanceCategory} />
+                    <span class="switch-text">{$t('settings.general.auto_advance_category')}</span>
+                  </label>
+                  <label class="switch-label checkbox-label" for="auto-advance-rat">
+                    <input type="checkbox" id="auto-advance-rat" bind:checked={autoAdvanceRating} />
+                    <span class="switch-text">{$t('settings.general.auto_advance_rating')}</span>
+                  </label>
+                  <label class="switch-label checkbox-label" for="auto-advance-lab">
+                    <input type="checkbox" id="auto-advance-lab" bind:checked={autoAdvanceLabel} />
+                    <span class="switch-text">{$t('settings.general.auto_advance_label')}</span>
+                  </label>
+                </div>
+              </div>
+
               <div class="setting-group">
                 <h3>{$t('settings.autoadvance_delay')}</h3>
                 <div class="setting-row">
@@ -218,6 +413,15 @@
                     <span class="slider-value">{autoAdvanceDelay === 0 ? $t('settings.autoadvance_delay.instant') : `${autoAdvanceDelay} ms`}</span>
                   </div>
                   <p class="setting-help">{$t('settings.autoadvance_delay.help')}</p>
+                </div>
+              </div>
+
+              <div class="setting-group">
+                <div class="setting-row inline-row">
+                  <label class="switch-label checkbox-label" for="sync-zoom-default">
+                    <input type="checkbox" id="sync-zoom-default" bind:checked={syncZoomDefault} />
+                    <span class="switch-text">{$t('settings.general.sync_zoom')}</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -259,24 +463,53 @@
                 </div>
               </div>
 
+              <!-- CACHE DIAGNOSTICS CARD -->
+              <div class="hw-card diagnostic-card">
+                <div class="hw-card-header text-accent">
+                  <span class="pulse-dot active-dot"></span> {$t('settings.cache.stats')}
+                </div>
+                <div class="hw-spec-row flex-align-center">
+                  <span class="spec-label">{$t('settings.cache.active_entries')}</span>
+                  <span class="spec-val">{currentJsCacheSize} Photos</span>
+                </div>
+                <div class="hw-spec-row inline-row-btn" style="margin-top: var(--space-2)">
+                  <button class="btn btn-sm btn-clear-cache" onclick={handleClearCache}>
+                    🗑️ {$t('settings.cache.clear_btn')}
+                  </button>
+                </div>
+              </div>
+
               <div class="setting-group">
                 <h3>{$t('settings.gpu_accel')}</h3>
                 <div class="setting-row inline-row">
-                  <label class="switch-label" for="gpu-accel-toggle">
+                  <label class="switch-label checkbox-label" for="gpu-accel-toggle">
                     <input type="checkbox" id="gpu-accel-toggle" bind:checked={gpuAccel} />
                     <span class="switch-text">{$t('settings.gpu_accel.help')}</span>
                   </label>
                 </div>
               </div>
 
-              <div class="setting-group">
-                <h3>{$t('settings.cpu_decoders')}</h3>
-                <div class="setting-row">
-                  <div class="slider-container">
-                    <input type="range" min="2" max={Math.max(2, sysCores)} step="1" bind:value={cpuThreads} />
-                    <span class="slider-value">{cpuThreads} {$t('settings.cpu_cores')}</span>
+              <div class="setting-group-grid">
+                <div class="setting-group">
+                  <h3>{$t('settings.cpu_decoders')}</h3>
+                  <div class="setting-row">
+                    <div class="slider-container">
+                      <input type="range" min="2" max={Math.max(2, sysCores)} step="1" bind:value={cpuThreads} />
+                      <span class="slider-value">{cpuThreads} Cores</span>
+                    </div>
+                    <p class="setting-help">{$t('settings.cpu_decoders.help')}</p>
                   </div>
-                  <p class="setting-help">{$t('settings.cpu_decoders.help')}</p>
+                </div>
+
+                <div class="setting-group">
+                  <h3>{$t('settings.cache_limit')}</h3>
+                  <div class="setting-row">
+                    <div class="slider-container">
+                      <input type="range" id="cache-limit" min="100" max="1000" step="50" bind:value={cacheLimit} />
+                      <span class="slider-value">{cacheLimit} Photos</span>
+                    </div>
+                    <p class="setting-help">{$t('settings.cache_limit.help')}</p>
+                  </div>
                 </div>
               </div>
 
@@ -302,17 +535,114 @@
                   </div>
                 </div>
               </div>
+            </div>
+          {/if}
+
+          <!-- AI & CULLING TAB -->
+          {#if activeTab === 'ai'}
+            <div class="tab-panel animate-fade-in">
+              <div class="setting-group">
+                <h3>{$t('settings.ai.default_weights')}</h3>
+                <div class="setting-row slider-row-group">
+                  <div class="weight-slider-item">
+                    <span class="weight-label">{$t('settings.ai.aesthetic')}</span>
+                    <div class="slider-container">
+                      <input type="range" min="0" max="1" step="0.05" bind:value={aestheticWeight} />
+                      <span class="slider-value">{Math.round(aestheticWeight * 100)}%</span>
+                    </div>
+                  </div>
+                  <div class="weight-slider-item">
+                    <span class="weight-label">{$t('settings.ai.technical')}</span>
+                    <div class="slider-container">
+                      <input type="range" min="0" max="1" step="0.05" bind:value={technicalWeight} />
+                      <span class="slider-value">{Math.round(technicalWeight * 100)}%</span>
+                    </div>
+                  </div>
+                  <div class="weight-slider-item">
+                    <span class="weight-label">{$t('settings.ai.face')}</span>
+                    <div class="slider-container">
+                      <input type="range" min="0" max="1" step="0.05" bind:value={faceWeight} />
+                      <span class="slider-value">{Math.round(faceWeight * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
               <div class="setting-group">
-                <h3>{$t('settings.performance')}</h3>
+                <h3>{$t('settings.ai.duplicate')}</h3>
                 <div class="setting-row">
-                  <label for="cache-limit">{$t('settings.cache_limit')}</label>
                   <div class="slider-container">
-                    <input type="range" id="cache-limit" min="100" max="2000" step="100" bind:value={cacheLimit} />
-                    <span class="slider-value">{cacheLimit} MB</span>
+                    <input type="range" min="0.80" max="0.99" step="0.01" bind:value={duplicateThreshold} />
+                    <span class="slider-value">{Math.round(duplicateThreshold * 100)}%</span>
                   </div>
-                  <p class="setting-help">{$t('settings.cache_limit.help')}</p>
                 </div>
+              </div>
+
+              <div class="setting-group border-top-group">
+                <h3>{$t('settings.ai.vlm_reasoning')}</h3>
+                <div class="setting-row" style="margin-bottom: var(--space-3)">
+                  <label class="switch-label checkbox-label" for="enable-vlm-toggle">
+                    <input type="checkbox" id="enable-vlm-toggle" bind:checked={enableVlm} />
+                    <span class="switch-text">Enable Cognitive Vision & Natural Reasoning Fallback</span>
+                  </label>
+                </div>
+
+                {#if enableVlm}
+                  <div class="vlm-config-panel animate-slide-up">
+                    <div class="setting-row select-row" style="margin-bottom: var(--space-3)">
+                      <label for="vlm-provider-select">{$t('settings.ai.vlm_provider')}</label>
+                      <select id="vlm-provider-select" bind:value={vlmProvider} class="setting-select">
+                        <option value="ollama">Local Neural Node (Ollama)</option>
+                        <option value="nvidia_nim">Cloud Acceleration (NVIDIA NIM)</option>
+                      </select>
+                    </div>
+
+                    {#if vlmProvider === 'ollama'}
+                      <div class="provider-fields animate-fade-in">
+                        <div class="setting-row" style="margin-bottom: var(--space-2)">
+                          <label for="ollama-url">{$t('settings.ai.ollama_url')}</label>
+                          <input type="text" id="ollama-url" bind:value={ollamaUrl} class="setting-input-text" />
+                        </div>
+                        <div class="setting-row" style="margin-bottom: var(--space-3)">
+                          <label for="ollama-model">{$t('settings.ai.ollama_model')}</label>
+                          <input type="text" id="ollama-model" bind:value={ollamaModel} class="setting-input-text" />
+                        </div>
+                        <div class="setting-row align-btn-status">
+                          <button class="btn btn-sm" onclick={testOllamaConnection} disabled={ollamaStatus === 'testing'}>
+                            {ollamaStatus === 'testing' ? 'Testing...' : $t('settings.ai.test_connection')}
+                          </button>
+                          <span class="status-indicator {ollamaStatus}">
+                            {ollamaStatus.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    {:else}
+                      <div class="provider-fields animate-fade-in">
+                        <div class="setting-row" style="margin-bottom: var(--space-2)">
+                          <label for="nvidia-key">{$t('settings.ai.nvidia_key')}</label>
+                          <input type="password" id="nvidia-key" bind:value={nvidiaApiKey} class="setting-input-text" placeholder="nvapi-..." />
+                        </div>
+                        <div class="setting-row" style="margin-bottom: var(--space-3)">
+                          <label for="nvidia-model">{$t('settings.ai.nvidia_model')}</label>
+                          <select id="nvidia-model" bind:value={nvidiaModel} class="setting-select">
+                            <option value="moonshotai/kimi-k2.6">Kimi k2.6 Vision (Moonshot)</option>
+                            <option value="meta/llama-3.2-11b-vision-instruct">Llama 3.2 11B Vision (Meta)</option>
+                            <option value="nvidia/vila-15b">VILA 15B (NVIDIA)</option>
+                            <option value="microsoft/phi-3.5-vision-instruct">Phi-3.5 Vision (Microsoft)</option>
+                          </select>
+                        </div>
+                        <div class="setting-row align-btn-status">
+                          <button class="btn btn-sm" onclick={testNvidiaConnection} disabled={nvidiaStatus === 'testing'}>
+                            {nvidiaStatus === 'testing' ? 'Testing...' : $t('settings.ai.test_connection')}
+                          </button>
+                          <span class="status-indicator {nvidiaStatus}">
+                            {nvidiaStatus.toUpperCase()}
+                          </span>
+                        </div>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
               </div>
             </div>
           {/if}
@@ -848,5 +1178,155 @@
     gap: 12px;
     border-top: 1px solid rgba(255, 255, 255, 0.05);
     background: #111112;
+  }
+
+  /* ADVANCED PREFERENCES PRESET STYLES */
+  .flex-column-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    cursor: pointer;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    transition: color 0.15s;
+  }
+
+  .checkbox-label:hover {
+    color: white;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    accent-color: var(--accent);
+    cursor: pointer;
+    width: 15px;
+    height: 15px;
+  }
+
+  .btn-clear-cache {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #ef4444;
+    transition: all 0.2s;
+  }
+
+  .btn-clear-cache:hover {
+    background: #ef4444;
+    color: white;
+    border-color: transparent;
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+  }
+
+  .diagnostic-card {
+    border-color: var(--accent-soft);
+    background: rgba(37, 99, 235, 0.03);
+  }
+
+  .text-accent {
+    color: var(--accent-light) !important;
+  }
+
+  .active-dot {
+    background: var(--accent-light);
+    box-shadow: 0 0 6px var(--accent-light);
+  }
+
+  .border-top-group {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: var(--space-4);
+  }
+
+  .vlm-config-panel {
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    margin-top: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .setting-input-text {
+    background: #1a1a1c;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: var(--text-sm);
+    outline: none;
+    width: 100%;
+    font-family: var(--font-sans);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .setting-input-text:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+  }
+
+  .slider-row-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .weight-slider-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .weight-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .align-btn-status {
+    flex-direction: row !important;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .status-indicator {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-tertiary);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .status-indicator.online {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.1);
+    border-color: rgba(16, 185, 129, 0.2);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.1);
+  }
+
+  .status-indicator.offline {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.2);
+  }
+
+  .status-indicator.testing {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.2);
+  }
+
+  .status-indicator.idle {
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.05);
   }
 </style>

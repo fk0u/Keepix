@@ -15,7 +15,7 @@
     cloneStampDab,
     isDefault,
   } from '$lib/services/image-editor';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
 
   let {
     item,
@@ -70,18 +70,23 @@
 
   // Load preview images when active items change
   $effect(() => {
-    for (const activeItem of activeItems) {
-      if (activeItem.file_type === 'photo') {
-        const path = activeItem.preview_path || activeItem.file_path;
-        if (path && !previewImages[path]) {
-          getImageDataUri(path).then(uri => {
-            if (uri) {
-              previewImages = { ...previewImages, [path]: uri };
-            }
-          });
+    // Only rerun when activeItems changes
+    const list = activeItems;
+
+    untrack(() => {
+      for (const activeItem of list) {
+        if (activeItem.file_type === 'photo') {
+          const path = activeItem.preview_path || activeItem.file_path;
+          if (path && !previewImages[path]) {
+            getImageDataUri(path).then(uri => {
+              if (uri) {
+                previewImages = { ...previewImages, [path]: uri };
+              }
+            });
+          }
         }
       }
-    }
+    });
   });
 
   // Prefetch adjacent preview images for smooth navigation
@@ -98,29 +103,35 @@
 
   // Load filmstrip thumbnails (visible ones in batches)
   $effect(() => {
-    const start = Math.max(0, selectedIndex - 20);
-    const end = Math.min(items.length, selectedIndex + 30);
-    const paths: (string | null)[] = [];
+    // Only rerun when selectedIndex or items change
+    const idx = selectedIndex;
+    const list = items;
 
-    for (let i = start; i < end; i++) {
-      const p = items[i].thumbnail_path;
-      if (p && !filmstripImages[p]) {
-        paths.push(p);
-      }
-    }
+    untrack(() => {
+      const start = Math.max(0, idx - 20);
+      const end = Math.min(list.length, idx + 30);
+      const paths: (string | null)[] = [];
 
-    if (paths.length > 0) {
-      prefetchImages(paths);
-      paths.forEach(p => {
-        if (p) {
-          getImageDataUri(p).then(uri => {
-            if (uri) {
-              filmstripImages = { ...filmstripImages, [p]: uri };
-            }
-          });
+      for (let i = start; i < end; i++) {
+        const p = list[i].thumbnail_path;
+        if (p && !filmstripImages[p]) {
+          paths.push(p);
         }
-      });
-    }
+      }
+
+      if (paths.length > 0) {
+        prefetchImages(paths);
+        paths.forEach(p => {
+          if (p) {
+            getImageDataUri(p).then(uri => {
+              if (uri) {
+                filmstripImages = { ...filmstripImages, [p]: uri };
+              }
+            });
+          }
+        });
+      }
+    });
   });
 
   // Render canvases with adjustments for all active items when they change
