@@ -32,7 +32,7 @@
 
   // VLM Settings
   let enableVlm = $state(false);
-  let vlmProvider = $state<'ollama' | 'nvidia_nim'>('ollama');
+  let vlmProvider = $state<'ollama' | 'nvidia_nim' | 'gemini'>('ollama');
   let ollamaUrl = $state('http://localhost:11434');
   let ollamaModel = $state('llava');
   let ollamaStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
@@ -40,6 +40,11 @@
   let nvidiaApiKey = $state((import.meta.env as any).VITE_NVIDIA_API_KEY || '');
   let nvidiaModel = $state('moonshotai/kimi-k2.6');
   let nvidiaStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
+
+  let geminiApiKey = $state('');
+  let geminiModel = $state('gemini-2.5-flash');
+  let geminiStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
+  let enableStructuredCulling = $state(false);
 
   // Culling Session State
   let isCulling = $state(false);
@@ -71,6 +76,11 @@
     ollamaModel = localStorage.getItem('keepix_ollama_model') || 'llava';
     nvidiaApiKey = localStorage.getItem('keepix_nvidia_api_key') || (import.meta.env as any).VITE_NVIDIA_API_KEY || '';
     nvidiaModel = localStorage.getItem('keepix_nvidia_model') || 'moonshotai/kimi-k2.6';
+
+    geminiApiKey = localStorage.getItem('keepix_gemini_api_key') || '';
+    geminiModel = localStorage.getItem('keepix_gemini_model') || 'gemini-2.5-flash';
+    const savedEnableStructuredCulling = localStorage.getItem('keepix_enable_structured_culling');
+    if (savedEnableStructuredCulling) enableStructuredCulling = savedEnableStructuredCulling === 'true';
 
     const aesW = localStorage.getItem('keepix_default_aesthetic_weight');
     if (aesW) aestheticWeight = parseFloat(aesW);
@@ -124,6 +134,15 @@
   });
   $effect(() => {
     localStorage.setItem('keepix_nvidia_model', nvidiaModel);
+  });
+  $effect(() => {
+    localStorage.setItem('keepix_gemini_api_key', geminiApiKey);
+  });
+  $effect(() => {
+    localStorage.setItem('keepix_gemini_model', geminiModel);
+  });
+  $effect(() => {
+    localStorage.setItem('keepix_enable_structured_culling', String(enableStructuredCulling));
   });
 
   async function updateStyleDatasetStats() {
@@ -189,6 +208,39 @@
       nvidiaStatus = 'offline';
       toast.error(`NVIDIA NIM connection failed: ${err.message || err}`);
     }
+  }
+
+  async function testGeminiConnection() {
+    if (!geminiApiKey) {
+      toast.error('Please enter your Gemini API Key first.');
+      return;
+    }
+    geminiStatus = 'testing';
+    try {
+      const dummyGif = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      const resp = await invoke<string>('query_gemini_vision', {
+        imageBase64: dummyGif,
+        model: geminiModel,
+        prompt: 'Say exactly: Connected',
+        apiKey: geminiApiKey
+      });
+      if (resp) {
+        geminiStatus = 'online';
+        toast.success(`Gemini connected! Response: ${resp.trim()}`);
+      } else {
+        geminiStatus = 'offline';
+        toast.error('Gemini returned an empty response.');
+      }
+    } catch (err: any) {
+      geminiStatus = 'offline';
+      toast.error(`Gemini connection failed: ${err.message || err}`);
+    }
+  }
+
+  function parseJsonFromText(text: string) {
+    const match = text.match(/{[\s\S]*}/);
+    if (!match) throw new Error("No JSON object found in response");
+    return JSON.parse(match[0]);
   }
 
   async function startDownloadingModels() {
@@ -259,6 +311,19 @@
       } else if (p.phase === 'scoring') {
         addLog(`[SCORER] Analyzed ${p.current_file}: Aesthetic ${p.aesthetic_score.toFixed(1)}/10 | Sharpness ${p.technical_score.toFixed(0)}/100 | Faces: ${p.face_count}`, 'info');
         
+        // Live stats update
+        let initialCat: 'best' | 'trash' | 'review' = 'review';
+        if (p.overall_score > 0.75) {
+          stats.best++;
+          initialCat = 'best';
+        } else if (p.overall_score < 0.25) {
+          stats.trash++;
+          initialCat = 'trash';
+        } else {
+          stats.review++;
+          initialCat = 'review';
+        }
+
         // Optional Cloud/Local VLM Reasoning companion
         if (enableVlm && p.current_file) {
           try {
@@ -269,41 +334,106 @@
               const base64Data = await invoke<string>('read_image_base64', { path: previewPath });
               const base64Clean = base64Data.split(',')[1];
               
+              let responseText = '';
+              let promptText = 'Describe this photo composition and quality in 10 words or less.';
+
+              if (enableStructuredCulling) {
+                promptText = `Analyze this photo's composition, lighting, focus, and overall quality. Return EXACTLY a JSON object matching this schema:
+{
+  "category": "best" | "trash" | "draft" | "review" | "none",
+  "rating": 0 | 1 | 2 | 3 | 4 | 5,
+  "colorLabel": "red" | "orange" | "yellow" | "green" | "none",
+  "reason": "short explanation"
+}`;
+              }
+              
               if (vlmProvider === 'ollama') {
-                addLog(`[VLM] Generating Ollama description for ${p.current_file}...`, 'info');
-                const ollamaResp = await invoke<string>('query_ollama_vision', {
+                addLog(`[VLM] Generating Ollama recommendation for ${p.current_file}...`, 'info');
+                responseText = await invoke<string>('query_ollama_vision', {
                   imageBase64: base64Clean,
                   model: ollamaModel,
-                  prompt: 'Describe this photo composition and quality in 10 words or less.'
+                  prompt: promptText,
+                  ollamaUrl: ollamaUrl
                 });
-                addLog(`[VLM DESC] ${p.current_file}: "${ollamaResp.trim()}"`, 'success');
               } else if (vlmProvider === 'nvidia_nim') {
                 if (!nvidiaApiKey) {
                   addLog(`[VLM WARN] NVIDIA NIM API key is missing. Skipping description.`, 'warn');
                 } else {
-                  addLog(`[VLM] Generating NVIDIA NIM description for ${p.current_file}...`, 'info');
-                  const nimResp = await invoke<string>('query_nvidia_nim_vision', {
+                  addLog(`[VLM] Generating NVIDIA NIM recommendation for ${p.current_file}...`, 'info');
+                  responseText = await invoke<string>('query_nvidia_nim_vision', {
                     imageBase64: base64Clean,
                     model: nvidiaModel,
-                    prompt: 'Describe this photo composition and quality in 10 words or less.',
+                    prompt: promptText,
                     apiKey: nvidiaApiKey
                   });
-                  addLog(`[VLM DESC] ${p.current_file}: "${nimResp.trim()}"`, 'success');
+                }
+              } else if (vlmProvider === 'gemini') {
+                if (!geminiApiKey) {
+                  addLog(`[VLM WARN] Gemini API key is missing. Skipping recommendation.`, 'warn');
+                } else {
+                  addLog(`[VLM] Generating Google Gemini recommendation for ${p.current_file}...`, 'info');
+                  responseText = await invoke<string>('query_gemini_vision', {
+                    imageBase64: base64Clean,
+                    model: geminiModel,
+                    prompt: promptText,
+                    apiKey: geminiApiKey
+                  });
+                }
+              }
+
+              if (responseText) {
+                if (enableStructuredCulling) {
+                  try {
+                    const resultJson = parseJsonFromText(responseText);
+                    const reason = resultJson.reason || '';
+                    const category = resultJson.category || 'none';
+                    const rating = typeof resultJson.rating === 'number' ? resultJson.rating : 0;
+                    const colorLabel = resultJson.colorLabel || 'none';
+
+                    addLog(`[VLM DECISION] ${p.current_file}: Category=${category.toUpperCase()} | Rating=${rating}* | Label=${colorLabel} | Reason="${reason}"`, 'success');
+
+                    // Map VLM category to DB category ID
+                    let categoryId: number | null = null;
+                    let vlmCat: 'best' | 'trash' | 'review' = 'review';
+                    if (category === 'best') {
+                      categoryId = 2;
+                      vlmCat = 'best';
+                    } else if (category === 'trash') {
+                      categoryId = 1;
+                      vlmCat = 'trash';
+                    } else if (category === 'draft') {
+                      categoryId = 3;
+                      vlmCat = 'review';
+                    } else if (category === 'review') {
+                      categoryId = 4;
+                      vlmCat = 'review';
+                    }
+
+                    // Save VLM decisions back to database using store actions
+                    await setCategoryForItem(item.id, proj.id, categoryId);
+                    if (rating > 0) {
+                      await setStarRatingForItem(item.id, rating);
+                    }
+                    if (colorLabel && colorLabel !== 'none') {
+                      await setColorLabelForItem(item.id, colorLabel);
+                    }
+
+                    // Update UI stats to reflect VLM choice instead of initial choice
+                    if (initialCat !== vlmCat) {
+                      stats[initialCat]--;
+                      stats[vlmCat]++;
+                    }
+                  } catch (jsonErr: any) {
+                    addLog(`[VLM ERROR] Failed to parse JSON recommendation: ${jsonErr.message}. Output was: "${responseText}"`, 'error');
+                  }
+                } else {
+                  addLog(`[VLM DESC] ${p.current_file}: "${responseText.trim()}"`, 'success');
                 }
               }
             }
           } catch (e: any) {
             addLog(`[VLM WARN] VLM companion failed: ${e.message || e}`, 'warn');
           }
-        }
-
-        // Live stats update
-        if (p.overall_score > 0.75) {
-          stats.best++;
-        } else if (p.overall_score < 0.25) {
-          stats.trash++;
-        } else {
-          stats.review++;
         }
       } else if (p.phase === 'duplicates') {
         addLog(`[SYSTEM] ${p.message}`, 'warn');
@@ -521,11 +651,16 @@
                 <input type="checkbox" id="enable-vlm" bind:checked={enableVlm} />
               </div>
               {#if enableVlm}
+                <div class="ollama-toggle">
+                  <label for="enable-structured-culling">Use VLM for Auto-Culling</label>
+                  <input type="checkbox" id="enable-structured-culling" bind:checked={enableStructuredCulling} />
+                </div>
                 <div class="control-group">
                   <label for="vlm-provider">VLM Provider</label>
                   <select id="vlm-provider" bind:value={vlmProvider} class="cyber-select">
                     <option value="ollama">Local Ollama</option>
                     <option value="nvidia_nim">NVIDIA NIM (Cloud API)</option>
+                    <option value="gemini">Google Gemini (Cloud API)</option>
                   </select>
                 </div>
                 
@@ -557,6 +692,23 @@
                   </div>
                   <button class="btn btn-outline-cyber" onclick={testNvidiaConnection}>
                     Test Connection ({nvidiaStatus})
+                  </button>
+                {:else if vlmProvider === 'gemini'}
+                  <div class="control-group">
+                    <label for="gemini-api-key">Gemini API Key</label>
+                    <input type="password" id="gemini-api-key" placeholder="AIzaSy..." bind:value={geminiApiKey} />
+                  </div>
+                  <div class="control-group">
+                    <label for="gemini-model">Gemini Model</label>
+                    <select id="gemini-model" bind:value={geminiModel} class="cyber-select">
+                      <option value="gemini-2.5-flash">gemini-2.5-flash (Fast & Recommended)</option>
+                      <option value="gemini-2.5-pro">gemini-2.5-pro (High Quality)</option>
+                      <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy Fast)</option>
+                      <option value="gemini-1.5-pro">gemini-1.5-pro (Legacy High Quality)</option>
+                    </select>
+                  </div>
+                  <button class="btn btn-outline-cyber" onclick={testGeminiConnection}>
+                    Test Connection ({geminiStatus})
                   </button>
                 {/if}
               {/if}

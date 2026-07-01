@@ -1,4 +1,3 @@
-use image::codecs::webp::WebPEncoder;
 use image::{DynamicImage, ImageEncoder, ImageReader};
 use fast_image_resize::{self as fir};
 use std::path::Path;
@@ -207,8 +206,8 @@ pub fn generate_thumbnails(
     media_id: &str,
 ) -> Result<ThumbnailResult, String> {
     // Construct output paths
-    let thumb_path = output_dir.join(format!("{}_thumb.webp", media_id));
-    let preview_path = output_dir.join(format!("{}_preview.webp", media_id));
+    let thumb_path = output_dir.join(format!("{}_thumb.jpg", media_id));
+    let preview_path = output_dir.join(format!("{}_preview.jpg", media_id));
 
     // Skip if both already exist
     if thumb_path.exists() && preview_path.exists() {
@@ -247,7 +246,7 @@ pub fn generate_thumbnails(
     })
 }
 
-/// Resize an image to fit within max_size (preserving aspect ratio) and save as WebP
+/// Resize an image to fit within max_size (preserving aspect ratio) and save as JPEG
 fn resize_and_save(img: &DynamicImage, max_size: u32, output_path: &Path) -> Result<(), String> {
     let (orig_w, orig_h) = (img.width(), img.height());
 
@@ -262,7 +261,7 @@ fn resize_and_save(img: &DynamicImage, max_size: u32, output_path: &Path) -> Res
 
     // Don't upscale — if image is smaller than target, just copy
     if orig_w <= target_w && orig_h <= target_h {
-        save_as_webp(img, output_path)?;
+        save_as_jpeg(img, output_path)?;
         return Ok(());
     }
 
@@ -298,22 +297,22 @@ fn resize_and_save(img: &DynamicImage, max_size: u32, output_path: &Path) -> Res
             .ok_or("Failed to create resized image buffer")?,
     );
 
-    save_as_webp(&resized, output_path)
+    save_as_jpeg(&resized, output_path)
 }
 
-/// Save a DynamicImage as WebP
-fn save_as_webp(img: &DynamicImage, path: &Path) -> Result<(), String> {
-    let rgba = img.to_rgba8();
-    let (w, h) = rgba.dimensions();
+/// Save a DynamicImage as JPEG with quality 80
+fn save_as_jpeg(img: &DynamicImage, path: &Path) -> Result<(), String> {
+    let rgb = img.to_rgb8();
+    let (w, h) = rgb.dimensions();
 
     let file = std::fs::File::create(path)
         .map_err(|e| format!("Failed to create file {}: {}", path.display(), e))?;
     let writer = std::io::BufWriter::new(file);
 
-    let encoder = WebPEncoder::new_lossless(writer);
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(writer, 80);
     encoder
-        .write_image(rgba.as_raw(), w, h, image::ExtendedColorType::Rgba8)
-        .map_err(|e| format!("Failed to encode WebP: {}", e))?;
+        .write_image(rgb.as_raw(), w, h, image::ExtendedColorType::Rgb8)
+        .map_err(|e| format!("Failed to encode JPEG: {}", e))?;
 
     Ok(())
 }
@@ -337,13 +336,13 @@ pub fn generate_video_placeholder(
     output_dir: &Path,
     media_id: &str,
 ) -> Result<ThumbnailResult, String> {
-    let thumb_path = output_dir.join(format!("{}_thumb.webp", media_id));
-    let preview_path = output_dir.join(format!("{}_preview.webp", media_id));
+    let thumb_path = output_dir.join(format!("{}_thumb.jpg", media_id));
+    let preview_path = output_dir.join(format!("{}_preview.jpg", media_id));
 
     // Create a simple dark placeholder image
     let placeholder = DynamicImage::new_rgba8(GRID_THUMB_SIZE, GRID_THUMB_SIZE);
-    save_as_webp(&placeholder, &thumb_path)?;
-    save_as_webp(&placeholder, &preview_path)?;
+    save_as_jpeg(&placeholder, &thumb_path)?;
+    save_as_jpeg(&placeholder, &preview_path)?;
 
     Ok(ThumbnailResult {
         media_id: media_id.to_string(),

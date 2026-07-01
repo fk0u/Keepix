@@ -455,3 +455,29 @@ pub fn predict_user_style_knn(
 
     (predicted_cat, confidence)
 }
+
+#[cfg(test)]
+mod tests {
+    use ort::session::Session;
+
+    #[test]
+    #[ignore]
+    fn inspect_aesthetic_onnx() {
+        let client = reqwest::blocking::Client::new();
+        let resp = client.get("https://huggingface.co/vargr/aesthetics-onnx/resolve/main/output.onnx")
+            .send().unwrap();
+        let bytes = resp.bytes().unwrap();
+        std::fs::write("temp_output.onnx", &bytes).unwrap();
+
+        let session = Session::builder().unwrap().commit_from_file("temp_output.onnx").unwrap();
+        println!("Inputs:");
+        for input in session.inputs() {
+            println!("  Input: {:?}", input);
+        }
+        println!("Outputs:");
+        for output in session.outputs() {
+            println!("  Output: {:?}", output);
+        }
+        assert!(false); // Force test failure to see the stdout print
+    }
+}

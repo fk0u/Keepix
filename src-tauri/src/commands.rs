@@ -1548,6 +1548,7 @@ pub async fn query_ollama_vision(
     image_base64: String,
     model: String,
     prompt: String,
+    ollama_url: String,
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
     
@@ -1559,7 +1560,8 @@ pub async fn query_ollama_vision(
         "images": [image_base64]
     });
 
-    let res = client.post("http://localhost:11434/api/generate")
+    let endpoint = format!("{}/api/generate", ollama_url.trim_end_matches('/'));
+    let res = client.post(&endpoint)
         .json(&payload)
         .send()
         .await
@@ -1634,6 +1636,76 @@ pub async fn query_nvidia_nim_vision(
 
     let response_text = data["choices"][0]["message"]["content"].as_str()
         .ok_or_else(|| "NVIDIA NIM response did not contain message content".to_string())?;
+
+    Ok(response_text.to_string())
+}
+
+#[tauri::command]
+pub async fn query_gemini_vision(
+    image_base64: String,
+    model: String,
+    prompt: String,
+    api_key: String,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    
+    let mut mime_type = "image/jpeg";
+    let clean_base64 = if image_base64.starts_with("data:") {
+        if let Some(comma_pos) = image_base64.find(',') {
+            let prefix = &image_base64[..comma_pos];
+            if let Some(semi_pos) = prefix.find(';') {
+                if semi_pos > 5 {
+                    mime_type = &prefix[5..semi_pos];
+                }
+            }
+            &image_base64[comma_pos + 1..]
+        } else {
+            &image_base64
+        }
+    } else {
+        &image_base64
+    };
+
+    let payload = serde_json::json!({
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    },
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": clean_base64
+                        }
+                    }
+                ]
+            }
+        ]
+    });
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model, api_key
+    );
+
+    let res = client.post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to connect to Gemini service: {}", e))?;
+
+    if !res.status().is_success() {
+        let status = res.status();
+        let err_body = res.text().await.unwrap_or_default();
+        return Err(format!("Gemini API error: Status {}. Details: {}", status, err_body));
+    }
+
+    let data = res.json::<serde_json::Value>().await
+        .map_err(|e| format!("Failed to parse response from Gemini: {}", e))?;
+
+    let response_text = data["candidates"][0]["content"]["parts"][0]["text"].as_str()
+        .ok_or_else(|| "Gemini response did not contain message text".to_string())?;
 
     Ok(response_text.to_string())
 }
