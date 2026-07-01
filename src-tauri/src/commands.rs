@@ -1710,4 +1710,10 @@ pub async fn query_gemini_vision(
     Ok(response_text.to_string())
 }
 
+#[tauri::command]
+pub fn restart_app(app_handle: AppHandle) {
+    app_handle.restart();
+}
+
+
 

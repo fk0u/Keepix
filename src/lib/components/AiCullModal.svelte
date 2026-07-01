@@ -42,7 +42,7 @@
   let nvidiaStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
 
   let geminiApiKey = $state('');
-  let geminiModel = $state('gemini-2.5-flash');
+  let geminiModel = $state('gemini-flash-latest');
   let geminiStatus = $state<'idle' | 'testing' | 'online' | 'offline'>('idle');
   let enableStructuredCulling = $state(false);
 
@@ -78,7 +78,7 @@
     nvidiaModel = localStorage.getItem('keepix_nvidia_model') || 'moonshotai/kimi-k2.6';
 
     geminiApiKey = localStorage.getItem('keepix_gemini_api_key') || '';
-    geminiModel = localStorage.getItem('keepix_gemini_model') || 'gemini-2.5-flash';
+    geminiModel = localStorage.getItem('keepix_gemini_model') || 'gemini-flash-latest';
     const savedEnableStructuredCulling = localStorage.getItem('keepix_enable_structured_culling');
     if (savedEnableStructuredCulling) enableStructuredCulling = savedEnableStructuredCulling === 'true';
 
@@ -528,7 +528,7 @@
       <div class="modal-header">
         <div class="header-title">
           <span class="pulse-dot"></span>
-          <h3>Local Neural Culling Workstation v4.1.0</h3>
+          <h3>Local Neural Culling Workstation v4.1.1</h3>
         </div>
         <button class="btn-close" onclick={handleClose} title="Close">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2">
@@ -701,7 +701,8 @@
                   <div class="control-group">
                     <label for="gemini-model">Gemini Model</label>
                     <select id="gemini-model" bind:value={geminiModel} class="cyber-select">
-                      <option value="gemini-2.5-flash">gemini-2.5-flash (Fast & Recommended)</option>
+                      <option value="gemini-flash-latest">gemini-flash-latest (Fast & Recommended)</option>
+                      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                       <option value="gemini-2.5-pro">gemini-2.5-pro (High Quality)</option>
                       <option value="gemini-1.5-flash">gemini-1.5-flash (Legacy Fast)</option>
                       <option value="gemini-1.5-pro">gemini-1.5-pro (Legacy High Quality)</option>

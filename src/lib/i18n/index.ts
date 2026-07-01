@@ -15,7 +15,7 @@ const translations = {
     // General
     'app.name': 'Keepix by KOU',
     'app.tagline': 'Photo & Video Culling',
-    'app.version': 'v4.1.0',
+    'app.version': 'v4.1.1',
     'btn.new_workspace': 'New Workspace',
     'btn.open_folder': 'Open Folder',
     
@@ -406,7 +406,7 @@ const translations = {
     // General
     'app.name': 'Keepix by KOU',
     'app.tagline': 'Seleksi Foto & Video',
-    'app.version': 'v4.1.0',
+    'app.version': 'v4.1.1',
     'btn.new_workspace': 'Workspace Baru',
     'btn.open_folder': 'Buka Folder',
     

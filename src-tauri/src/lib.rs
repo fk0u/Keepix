@@ -91,6 +91,7 @@ pub fn run() {
             commands::query_ollama_vision,
             commands::query_nvidia_nim_vision,
             commands::query_gemini_vision,
+            commands::restart_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepix");
